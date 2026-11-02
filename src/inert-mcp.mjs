@@ -1,8 +1,10 @@
 #!/usr/bin/env node
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
 
 const manifestPath = process.argv[2];
+// 対話 TUI は入力欄を出した時点でまだツール一覧を取っていないことがあるため、取得済みを印のファイルで知らせる
+const listedMarkerPath = process.argv[3];
 if (!manifestPath) process.exit(2);
 const tools = JSON.parse(await readFile(manifestPath, "utf8"));
 const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
@@ -34,4 +36,5 @@ for await (const line of lines) {
   if (request.id !== undefined) {
     process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
   }
+  if (request.method === "tools/list" && listedMarkerPath) await writeFile(listedMarkerPath, "");
 }
