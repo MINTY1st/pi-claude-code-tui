@@ -3,7 +3,8 @@
 const ANSI = /\x1b\[[0-9;?<>=]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[P^_][^\x1b]*\x1b\\|\x1b./g;
 const TRUST_NO = /❯\s*No,\s*exit/g;
 const TRUST_YES = /❯\s*Yes,\s*I trust/g;
-const TURN_DONE = /✻ [^❯]*? for \d+s/g;
+// スピナーにも ✻ が使われるため、間に別の ✻ を挟まない最短の行だけを終了の行とみなす
+const TURN_DONE = /✻ [^❯✻]*? for \d+s/g;
 const BUSY_MARK = "esc to interrupt";
 // 入力欄の ❯ の後ろは NBSP で描かれる（tmux は画面に描くとき普通の空白に変えるため、tmux 越しでは見えない）
 const PROMPT = /❯[ \u00a0]/;
@@ -41,6 +42,14 @@ export function screenState(plain: string): ScreenState {
   if (plain.includes("Select login method")) return "sign-in";
   if (isBusy(plain)) return "busy";
   return PROMPT.test(plain) ? "prompt" : "starting";
+}
+
+// 貼り付けた直後の画面にも ❯ が描かれるため、入力欄だけではターンの終わりと区別できない。
+// TUI はターンの終わりに必ず「✻ … for Ns」を描くので、その後ろに入力欄が描かれたことで判定する
+export function turnFinished(plain: string): boolean {
+  const done = lastMatchIndex(TURN_DONE, plain);
+  if (done < 0 || isBusy(plain)) return false;
+  return PROMPT.test(plain.slice(done));
 }
 
 export function bracketedPaste(text: string): string {

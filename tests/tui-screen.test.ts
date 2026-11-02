@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bracketedPaste, plainScreen, screenState, terminalReplies } from "../src/tui-screen.ts";
+import { bracketedPaste, plainScreen, screenState, terminalReplies, turnFinished } from "../src/tui-screen.ts";
 
 test("plainScreen は CSI・OSC のエスケープを空白に置き換える", () => {
   assert.equal(plainScreen("\x1b[2J\x1b[1;1H❯ \x1b]0;title\x07ok"), "  ❯  ok");
@@ -35,6 +35,16 @@ test("screenState は ❯ の後ろが NBSP の入力欄も入力待ちとみな
 
 test("screenState はログインを求める画面を見分ける", () => {
   assert.equal(screenState("Select login method: ❯ 1. Claude account with subscription"), "sign-in");
+});
+
+test("turnFinished は、ターン終了の行の後ろに入力欄が描かれたときだけ真になる", () => {
+  assert.equal(turnFinished("❯\u00a0continue"), false);
+  assert.equal(turnFinished("❯\u00a0continue ✻ Thinking… (esc to interrupt)"), false);
+  assert.equal(turnFinished("● ok ✻ Worked for 0s ❯\u00a0"), true);
+  assert.equal(turnFinished("● API Error: 400 denied ✻ Worked for 0s ──── ❯\u00a0 ────"), true);
+  assert.equal(turnFinished("✻ Worked for 0s"), false);
+  // スピナーにも ✻ が使われるため、手前の ✻ からターン終了の行と一致させない
+  assert.equal(turnFinished("✻ Thinking… (esc to interrupt) ● ok ✻ Worked for 0s ❯\u00a0"), true);
 });
 
 test("bracketedPaste は文字列を貼り付けの開始と終了で囲む", () => {
