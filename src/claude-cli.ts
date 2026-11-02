@@ -189,7 +189,7 @@ const readyStatusCache = new Map<string, { command: string; expires: number }>()
  * briefly because a fresh worker is spawned after every tool call, and an
  * extra `claude auth status` process on each of those turns adds latency.
  */
-async function readyClaudeCommand(
+export async function readyClaudeCommand(
   envInput: Record<string, string | undefined>,
   signal?: AbortSignal,
 ): Promise<string> {
@@ -421,7 +421,7 @@ function conflictingEnvironment(env: Record<string, string>): string[] {
   return conflicts;
 }
 
-function processEnvironment(
+export function processEnvironment(
   input: Record<string, string | undefined> | undefined,
   extraBody: Record<string, unknown>,
 ): Record<string, string> {
