@@ -1,5 +1,6 @@
 # pi-claude-code-tui
 
+[![npm](https://img.shields.io/npm/v/@minty1st/pi-claude-code-tui)](https://www.npmjs.com/package/@minty1st/pi-claude-code-tui)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Node.js](https://img.shields.io/badge/Node.js-%3E%3D24.21-339933)
 ![Status: Experimental](https://img.shields.io/badge/status-experimental-orange)
@@ -17,12 +18,12 @@ Pi manages conversation history, approvals, and tool execution. Claude Code hand
 ## Install
 
 ```sh
-pi install git:github.com/MINTY1st/pi-claude-code-tui
+pi install npm:@minty1st/pi-claude-code-tui
 ```
 
-Restart Pi after installation. Disable any other extension registering the same Claude Code provider.
+Or install the latest source from GitHub with `pi install git:github.com/MINTY1st/pi-claude-code-tui`. Use the scoped name above: the unscoped npm name `pi-claude-code-tui` belongs to an unrelated package.
 
-The first npm release is pending. The planned name is **`@minty1st/pi-claude-code-tui`**, subject to scope ownership verification. Once published, install with `pi install npm:@minty1st/pi-claude-code-tui`. The unscoped npm name belongs to an unrelated package.
+Restart Pi after installation. Disable any other extension registering the same Claude Code provider.
 
 ## Usage
 
