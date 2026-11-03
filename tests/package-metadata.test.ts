@@ -15,6 +15,8 @@ test("所有スコープの公開候補名と public な npm レジストリ設�
 test("ロックファイルと動作条件がパッケージ定義に一致する", () => {
   assert.equal(lock.name, manifest.name);
   assert.equal(lock.packages[""].name, manifest.name);
+  assert.equal(lock.version, manifest.version);
+  assert.equal(lock.packages[""].version, manifest.version);
   assert.equal(manifest.engines.node, ">=24.21.0");
   assert.deepEqual(lock.packages[""].engines, manifest.engines);
 });
@@ -32,7 +34,7 @@ test("配布物に文書と派生元・magpie の MIT 表示を含める", () =>
 });
 
 test("Pi ギャラリー向けのキーワード・拡張定義・ホスト依存を保持する", () => {
-  for (const keyword of ["pi-package", "provider", "tui", "pty"]) assert.ok(manifest.keywords.includes(keyword), keyword);
+  for (const keyword of ["pi-package", "pi", "provider", "tui", "pty"]) assert.ok(manifest.keywords.includes(keyword), keyword);
   assert.deepEqual(manifest.pi.extensions, ["./src/index.ts"]);
   for (const dependency of ["@earendil-works/pi-ai", "@earendil-works/pi-coding-agent"]) {
     assert.equal(manifest.peerDependencies[dependency], "*");
