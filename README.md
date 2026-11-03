@@ -79,6 +79,30 @@ npm pack --dry-run
 
 Tests use a fake Claude Code and local upstream, not the real model service. PTY tests start real child processes and require `python3`.
 
+## Publishing
+
+An owner-pushed `vX.Y.Z` tag triggers [the publishing workflow](.github/workflows/publish.yml).
+The tagged commit must be in `main`, and the tag, manifest, and lockfile versions must match.
+Tests and type checks run without publishing credentials; a separate job publishes the verified tarball.
+
+One-time npm setup: in this package's **Settings → Trusted Publisher**, select GitHub Actions,
+set the owner and repository to this repository, and enter `publish.yml` as the workflow filename.
+Allow direct publishing; leave the environment name empty. No npm token or GitHub secret is needed.
+Keep repository write access limited to the owner. The workflow also checks the triggering actor,
+but cannot distinguish the owner's terminal from an agent using the owner's credentials.
+
+After merging a version update, explicitly request a release or push its tag:
+
+```sh
+git switch main
+git pull --ff-only origin main
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+Only stable versions are supported. Existing npm versions cannot be overwritten.
+Do not create a release tag until the trusted publisher is configured.
+
 ## Credits and license
 
 - [earendil-works/pi-claude-code](https://github.com/earendil-works/pi-claude-code), by Armin Ronacher — the upstream provider, conversation conversion, and relay implementation.
