@@ -7,6 +7,8 @@
 
 An experimental [Pi](https://pi.dev) provider that runs Claude Code's interactive terminal UI in a pseudo-terminal (PTY), rather than `claude -p`.
 
+**Why:** Headless `claude -p` has been [reported](https://github.com/anthropics/claude-code/issues/97074) to use roughly 1.8× more of the five-hour usage window per token than the interactive UI. This provider drives the interactive UI instead. It has not been measured here, and usage behavior is not guaranteed.
+
 Pi manages conversation history, approvals, and tool execution. Claude Code handles model communication. Compatible processes are reused, with Pi's conversation restored for each model call.
 
 ## Requirements
