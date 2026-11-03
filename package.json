@@ -1,5 +1,5 @@
 {
-  "name": "pi-claude-code-tui",
+  "name": "@minty1st/pi-claude-code-tui",
   "version": "0.1.0",
   "description": "Experimental Pi provider that runs Claude Code\u0027s interactive TUI in a PTY, with Pi-managed tools and conversation history.",
   "type": "module",
@@ -8,19 +8,26 @@
     "type": "git",
     "url": "git+https://github.com/MINTY1st/pi-claude-code-tui.git"
   },
-  "private": true,
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "keywords": [
     "pi-package",
     "claude",
     "claude-code",
-    "anthropic"
+    "anthropic",
+    "provider",
+    "tui",
+    "pty"
   ],
   "files": [
     "src",
     "README.md",
     "ARCHITECTURE.md",
     "docs",
-    "LICENSE"
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "pi": {
     "extensions": [
