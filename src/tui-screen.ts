@@ -4,7 +4,7 @@ const ANSI = /\x1b\[[0-9;?<>=]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1
 const TRUST_NO = /❯\s*No,\s*exit/g;
 const TRUST_YES = /❯\s*Yes,\s*I trust/g;
 // スピナーにも ✻ が使われるため、間に別の ✻ を挟まない最短の行だけを終了の行とみなす
-const TURN_DONE = /✻ [^❯✻]*? for \d+s/g;
+const TURN_DONE = /✻ [^❯✻\r\n]*? for (?:\d+h(?: \d+m)?(?: \d+s)?|\d+m(?: \d+s)?|\d+s)(?=\s|$)/g;
 const BUSY_MARK = "esc to interrupt";
 // 入力欄の ❯ の後ろは NBSP で描かれる（tmux は画面に描くとき普通の空白に変えるため、tmux 越しでは見えない）
 const PROMPT = /❯[ \u00a0]/;
@@ -21,6 +21,18 @@ export function terminalReplies(chunk: string): string[] {
   if (chunk.includes("\x1b[6n")) replies.push("\x1b[1;1R");
   if (chunk.includes("\x1b[c") || chunk.includes("\x1b[0c")) replies.push("\x1b[?62;c");
   return replies;
+}
+
+export function createTerminalResponder(): (chunk: string) => string[] {
+  let pending = "";
+  return (chunk) => {
+    const text = pending + chunk;
+    const replies = [...text.matchAll(/\x1b\[(?:6n|0?c)/g)]
+      .map(([query]) => query.endsWith("6n") ? "\x1b[1;1R" : "\x1b[?62;c");
+    const tail = text.slice(text.lastIndexOf("\x1b"));
+    pending = /^\x1b(?:\[(?:0|6)?)?$/.test(tail) ? tail : "";
+    return replies;
+  };
 }
 
 function lastMatchIndex(pattern: RegExp, text: string): number {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -86,6 +87,20 @@ test("clear で /clear を送り、入力待ちに戻るまで待つ", async () 
     await session.clear(3_000);
     assert.ok((await inputs(root)).includes("/clear"));
   });
+});
+
+test("Python が無い環境でも未処理の例外にせず、ready のエラーとして返して close できる", () => {
+  const modulePath = new URL("../src/pty-session.ts", import.meta.url).href;
+  const script = `
+    import { TuiSession } from ${JSON.stringify(modulePath)};
+    const session = TuiSession.start({ command: "claude", args: [], cwd: ${JSON.stringify(tmpdir())}, env: { PATH: "" }, listedMarker: "", trustFolder: false, readyTimeoutMs: 300 });
+    try { await session.ready(); process.exitCode = 2; }
+    catch (error) { console.log(error.message); }
+    finally { await session.close(); }
+  `;
+  const result = spawnSync(process.execPath, ["--experimental-transform-types", "--input-type=module", "-e", script], { encoding: "utf8", timeout: 5_000 });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Python.*ENOENT/i);
 });
 
 test("close で子プロセスを終わらせる", async () => {

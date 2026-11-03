@@ -29,6 +29,10 @@ async function requestUpstream(pasted) {
   };
   const response = await fetch(`${process.env.ANTHROPIC_BASE_URL}/v1/messages`, { method: "POST", body: JSON.stringify(body) });
   await response.text();
+  for (let index = 0; index < Number(process.env.FAKE_RECOVERY_REQUESTS ?? 0); index++) {
+    const recovery = await fetch(`${process.env.ANTHROPIC_BASE_URL}/v1/messages`, { method: "POST", body: JSON.stringify(body) });
+    await recovery.text();
+  }
   return response.status;
 }
 
