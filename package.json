@@ -24,8 +24,6 @@
   "files": [
     "src",
     "README.md",
-    "ARCHITECTURE.md",
-    "docs",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md"
   ],
