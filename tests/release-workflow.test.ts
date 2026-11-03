@@ -25,6 +25,10 @@ test("検証jobはOIDC権限なしでテストし、公開jobは検証済みtarb
   assert.match(publishing!, /npm publish .*--access public --provenance --ignore-scripts/);
 });
 
+test("公開するtarballは./付きで指定し、npmにGitHubのowner/repo省略形と解釈させない", () => {
+  assert.match(publishing!, /packages=\(\.\/release\/\*\.tgz\)/);
+});
+
 test("外部ActionsはコミットSHAに固定する", () => {
   const actions = [...workflow.matchAll(/uses: (\S+)/g)].map((match) => match[1]!);
   assert.equal(actions.length, 5);
