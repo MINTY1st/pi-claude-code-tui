@@ -1,16 +1,14 @@
 {
-  "name": "@earendil-works/pi-claude-code",
+  "name": "pi-claude-code-tui",
   "version": "0.1.0",
-  "description": "Experimental pi provider for Claude Pro/Max subscriptions through Claude Code",
+  "description": "Experimental Pi provider that runs Claude Code\u0027s interactive TUI in a PTY, with Pi-managed tools and conversation history.",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/earendil-works/pi-claude-code.git"
+    "url": "git+https://github.com/MINTY1st/pi-claude-code-tui.git"
   },
-  "publishConfig": {
-    "access": "public"
-  },
+  "private": true,
   "keywords": [
     "pi-package",
     "claude",
@@ -21,6 +19,7 @@
     "src",
     "README.md",
     "ARCHITECTURE.md",
+    "docs",
     "LICENSE"
   ],
   "pi": {
@@ -43,6 +42,6 @@
     "typescript": "^5.9.3"
   },
   "engines": {
-    "node": ">=22.19.0"
+    "node": ">=24.21.0"
   }
 }

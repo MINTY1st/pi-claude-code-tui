@@ -1,0 +1,248 @@
+import assert from "node:assert/strict";
+import * as http from "node:http";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import test from "node:test";
+import { closeTuiProcesses, runTuiRequest, tuiArgs, tuiEnvironment, tuiModeEnabled } from "../src/tui-process.ts";
+import type { RunClaudeInput } from "../src/claude-cli.ts";
+import type { NativeContentBlock } from "../src/native-types.ts";
+import { TuiSession } from "../src/pty-session.ts";
+
+const fakeClaude = fileURLToPath(new URL("./fixtures/fake-claude.mjs", import.meta.url));
+
+test("tuiModeEnabled は既定で真、PI_CLAUDE_CODE_TUI=0 のときだけ -p に戻す", () => {
+  assert.equal(tuiModeEnabled({}), true);
+  assert.equal(tuiModeEnabled({ PI_CLAUDE_CODE_TUI: "0" }), false);
+  assert.equal(tuiModeEnabled({ PI_CLAUDE_CODE_TUI: "1" }), true);
+});
+
+test("tuiArgs は -p 系のフラグを使わず、Pi のツールだけを許可する", () => {
+  const args = tuiArgs({ model: "claude-x", mcpConfig: "{}", settingsPath: "/t.json" });
+  for (const flag of ["-p", "--input-format", "--output-format", "--max-turns", "--no-session-persistence", "--disable-slash-commands"]) {
+    assert.ok(!args.includes(flag), flag);
+  }
+  assert.deepEqual(args.slice(args.indexOf("--permission-mode"), args.indexOf("--permission-mode") + 2), ["--permission-mode", "default"]);
+  assert.equal(args[args.indexOf("--allowedTools") + 1], "mcp__pi");
+  assert.ok(!args.includes("--system-prompt-file"));
+});
+
+test("tuiEnvironment は entrypoint を変える親の変数を消す（対話 TUI 既定の cli にさせるため）", () => {
+  const env = tuiEnvironment({ CLAUDECODE: "1", CLAUDE_CODE_ENTRYPOINT: "sdk-cli", CLAUDE_CODE_SESSION_ID: "x", CLAUDE_PID: "1", PATH: "/bin" });
+  assert.deepEqual(env, { PATH: "/bin" });
+});
+
+interface Upstream { url: string; bodies: string[]; close: () => void }
+
+interface Reply { content?: NativeContentBlock; status?: number; complete?: boolean }
+
+async function fakeUpstream(headers: Record<string, string> = {}, reply: Reply = {}): Promise<Upstream> {
+  const bodies: string[] = [];
+  const usage = { input_tokens: 3, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
+  const events = [
+    { type: "message_start", message: { id: "m1", role: "assistant", content: [], usage } },
+    { type: "content_block_start", index: 0, content_block: reply.content ?? { type: "text", text: "" } },
+    ...(!reply.content ? [{ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "hello" } }] : []),
+    { type: "content_block_stop", index: 0 },
+    { type: "message_delta", delta: { stop_reason: reply.content?.type === "tool_use" ? "tool_use" : "end_turn" }, usage },
+    ...(reply.complete === false ? [] : [{ type: "message_stop" }]),
+  ];
+  const server = http.createServer(async (request, response) => {
+    let body = "";
+    for await (const chunk of request) body += chunk;
+    bodies.push(body);
+    response.writeHead(reply.status ?? 200, { "content-type": "text/event-stream", ...headers });
+    response.end(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as { port: number };
+  return { url: `http://127.0.0.1:${address.port}`, bodies, close: () => server.close() };
+}
+
+async function withFixture(headers: Record<string, string>, body: (upstream: Upstream, input: (text: string) => RunClaudeInput, log: () => Promise<string[]>) => Promise<void>, reply: Reply = {}) {
+  const upstream = await fakeUpstream(headers, reply);
+  const root = await mkdtemp(join(tmpdir(), "tui-process-"));
+  const logPath = join(root, "input.log");
+  const input = (text: string): RunClaudeInput => ({
+    model: "claude-test",
+    cwd: root,
+    frames: [{ type: "user", message: { role: "user", content: [{ type: "text", text }] } }],
+    systemPrompt: "pi system",
+    manifest: [],
+    extraBody: {},
+    toolNames: new Set(),
+    upstreamUrl: upstream.url,
+    sessionId: "session-1",
+    timeoutMs: 10_000,
+    env: { PI_CLAUDE_CODE_COMMAND: fakeClaude, PI_CLAUDE_CODE_TUI_TRUST: "1", FAKE_LOG: logPath },
+  });
+  try {
+    await body(upstream, input, async () => (await readFile(logPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as string));
+  } finally {
+    await closeTuiProcesses();
+    upstream.close();
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+test("runTuiRequest は貼り付けで1回リクエストを起こし、本文の messages を Pi の会話に差し替えて応答を返す", async () => {
+  await withFixture({}, async (upstream, input) => {
+    const events: string[] = [];
+    const output = await runTuiRequest({ ...input("Pi の発言"), onEvent: (event) => events.push(event.type) });
+    assert.deepEqual(output.message.content, [{ type: "text", text: "hello" }]);
+    assert.equal(output.usage.input_tokens, 3);
+    assert.equal(output.relay.upstreamRequests, 1);
+    const sent = JSON.parse(upstream.bodies[0]!);
+    assert.equal(sent.messages[0].content.at(-1).text, "Pi の発言");
+    assert.equal(sent.messages[0].content.at(-2).text, "pi system");
+    assert.ok(!JSON.stringify(sent.system).includes("pi system"));
+    assert.match(sent.system[0].text, /cc_entrypoint=cli/);
+    assert.ok(events.includes("message_start"));
+  });
+});
+
+test("同じ Pi セッションの次のターンは、/clear してから同じ Claude Code を使い回す", async () => {
+  await withFixture({}, async (upstream, input, log) => {
+    await runTuiRequest(input("一つ目"));
+    await runTuiRequest(input("二つ目"));
+    const received = await log();
+    assert.equal(received.filter((text) => text === "started").length, 1);
+    assert.ok(received.includes("/clear"));
+    assert.equal(JSON.parse(upstream.bodies[1]!).messages[0].content.at(-1).text, "二つ目");
+  });
+});
+
+test("待機15分のタイマーでプロセスを破棄し、次の要求では新しく起動する", async (context) => {
+  const original = globalThis.setTimeout;
+  let expire: (() => void) | undefined;
+  context.mock.method(globalThis, "setTimeout", (callback: (...args: unknown[]) => void, milliseconds?: number, ...args: unknown[]) => {
+    if (milliseconds === 15 * 60 * 1_000) expire = () => callback(...args);
+    return original(callback, milliseconds, ...args);
+  });
+  await withFixture({}, async (_upstream, input, log) => {
+    await runTuiRequest(input("一つ目"));
+    assert.equal(typeof expire, "function");
+    expire!();
+    await runTuiRequest(input("二つ目"));
+    assert.equal((await log()).filter((text) => text === "started").length, 2);
+  });
+});
+
+test("タイムアウト設定が変わったら、古い relay の制限を引き継がずプロセスを作り直す", async () => {
+  await withFixture({}, async (_upstream, input, log) => {
+    await runTuiRequest(input("一つ目"));
+    await runTuiRequest({ ...input("二つ目"), timeoutMs: 20_000 });
+    assert.equal((await log()).filter((text) => text === "started").length, 2);
+  });
+});
+
+test("応答受信中の中断後は壊れたプロセスを再利用せず、次の要求は新しく起動する", async () => {
+  await withFixture({}, async (_upstream, input, log) => {
+    const controller = new AbortController();
+    await assert.rejects(runTuiRequest({ ...input("中断"), signal: controller.signal, onEvent: () => controller.abort() }));
+    const next = await runTuiRequest(input("再開"));
+    assert.equal(next.message.stop_reason, "end_turn");
+    assert.equal((await log()).filter((text) => text === "started").length, 2);
+  });
+});
+
+test("反例: 起動待ちで中断されたら、プロンプトが出ても上流には送信しない", async () => {
+  await withFixture({}, async (upstream, input) => {
+    const controller = new AbortController();
+    const request = runTuiRequest({ ...input("送らない"), signal: controller.signal });
+    const timer = setTimeout(() => controller.abort(), 100);
+    try {
+      await assert.rejects(request);
+      assert.equal(upstream.bodies.length, 0);
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+});
+
+test("反例: ready 待機中のセッション破棄は、その要求の送信と登録を止める", async (context) => {
+  const entered = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
+  const original = TuiSession.prototype.ready;
+  context.mock.method(TuiSession.prototype, "ready", async function (this: TuiSession, signal?: AbortSignal) {
+    entered.resolve();
+    await gate.promise;
+    return original.call(this, signal);
+  });
+  await withFixture({}, async (upstream, input) => {
+    const request = input("破棄する");
+    const outcome = runTuiRequest(request).then(() => "fulfilled", () => "rejected");
+    await entered.promise;
+    const closing = closeTuiProcesses(request.sessionId);
+    gate.resolve();
+    await closing;
+    assert.equal(await outcome, "rejected");
+    assert.equal(upstream.bodies.length, 0);
+  });
+});
+
+test("反例: セッション破棄は、キャッシュ外の並行 worker も中断して清掃する", async (context) => {
+  await withFixture({}, async (upstream, input) => {
+    await runTuiRequest(input("準備"));
+    const entered = Promise.withResolvers<void>();
+    const gate = Promise.withResolvers<void>();
+    const original = TuiSession.prototype.submit;
+    let count = 0;
+    context.mock.method(TuiSession.prototype, "submit", async function (this: TuiSession, text: string) {
+      if (++count === 2) entered.resolve();
+      await gate.promise;
+      return original.call(this, text);
+    });
+    const requests = ["A", "B"].map((text) => runTuiRequest(input(text)).then(() => "fulfilled", () => "rejected"));
+    await entered.promise;
+    const closing = closeTuiProcesses(input("").sessionId);
+    gate.resolve();
+    await closing;
+    assert.deepEqual(await Promise.all(requests), ["rejected", "rejected"]);
+    assert.equal(upstream.bodies.length, 1);
+  });
+});
+
+test("同じセッションへの並行要求でも、それぞれの会話を別のプロセスで処理する", async () => {
+  await withFixture({}, async (upstream, input, log) => {
+    const outputs = await Promise.all([runTuiRequest(input("会話 A")), runTuiRequest(input("会話 B"))]);
+    assert.deepEqual(outputs.map((output) => output.relay.upstreamRequests), [1, 1]);
+    assert.deepEqual(upstream.bodies.map((body) => JSON.parse(body).messages[0].content.at(-1).text).sort(), ["会話 A", "会話 B"]);
+    assert.equal((await log()).filter((text) => text === "started").length, 2);
+  });
+});
+
+test("tool_use を Pi へ返し、Claude Code が続けて送る2本の回復要求をすべて拒否する", async () => {
+  const tool: NativeContentBlock = { type: "tool_use", id: "toolu_read", name: "mcp__pi__read", input: { path: "/tmp/example" } };
+  await withFixture({}, async (upstream, input) => {
+    const request = input("読む");
+    const output = await runTuiRequest({ ...request, toolNames: new Set(["read"]), env: { ...request.env, FAKE_RECOVERY_REQUESTS: "2" } });
+    assert.deepEqual(output.message.content, [tool]);
+    assert.equal(output.message.stop_reason, "tool_use");
+    assert.equal(output.relay.upstreamRequests, 1);
+    assert.equal(output.relay.blockedRequests, 2);
+    assert.equal(upstream.bodies.length, 1);
+  }, { content: tool });
+});
+
+test("Pi に登録されていないツールを返す応答は採用しない", async () => {
+  await withFixture({}, async (_upstream, input) => {
+    await assert.rejects(runTuiRequest(input("読む")), /outside Pi/);
+  }, { content: { type: "tool_use", id: "t", name: "mcp__pi__unknown", input: {} } });
+});
+
+test("途中で切れた SSE や HTTP 400 は成功結果にせずエラーにする", async () => {
+  for (const reply of [{ complete: false }, { status: 400 }]) {
+    await withFixture({}, async (_upstream, input) => {
+      await assert.rejects(runTuiRequest(input("hi")), /Incomplete.*upstream/s);
+    }, reply);
+  }
+});
+
+test("使用量クレジットで払われた応答は billing エラーで止める", async () => {
+  const overage = { "anthropic-ratelimit-unified-status": "rejected", "anthropic-ratelimit-unified-overage-status": "allowed" };
+  await withFixture(overage, async (_upstream, input) => {
+    await assert.rejects(runTuiRequest(input("hi")), /billing/i);
+  });
+});
