@@ -15,6 +15,8 @@ test("所有スコープの公開候補名と public な npm レジストリ設�
 test("ロックファイルと動作条件がパッケージ定義に一致する", () => {
   assert.equal(lock.name, manifest.name);
   assert.equal(lock.packages[""].name, manifest.name);
+  assert.equal(lock.version, manifest.version);
+  assert.equal(lock.packages[""].version, manifest.version);
   assert.equal(manifest.engines.node, ">=24.21.0");
   assert.deepEqual(lock.packages[""].engines, manifest.engines);
 });
