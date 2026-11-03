@@ -113,6 +113,22 @@ test("同じ Pi セッションの次のターンは、/clear してから同じ
   });
 });
 
+test("最初の前置きを返して Pi のセッションに残させ、保存分を渡されたら上流へもそれを送る", async () => {
+  await withFixture({}, async (upstream, input) => {
+    const first = await runTuiRequest(input("一つ目"));
+    assert.deepEqual(first.initialUserPrefix, [{ type: "text", text: "<system-reminder>\nfake\n</system-reminder>" }]);
+    assert.deepEqual(first.initialSystemMessages, [{ role: "system", content: [{ type: "text", text: "# Environment" }] }]);
+    const pinnedPrefix = [{ type: "text", text: "<system-reminder>\npinned\n</system-reminder>" }];
+    const pinnedSystem = [{ role: "system", content: [{ type: "text", text: "# Environment at start" }] }];
+    const second = await runTuiRequest({ ...input("二つ目"), initialUserPrefix: pinnedPrefix, initialSystemMessages: pinnedSystem });
+    const sent = JSON.parse(upstream.bodies[1]!);
+    assert.equal(sent.messages[0].content[0].text, pinnedPrefix[0]!.text);
+    assert.equal(sent.messages[1].content[0].text, "# Environment at start");
+    assert.deepEqual(second.initialUserPrefix, pinnedPrefix);
+    assert.deepEqual(second.initialSystemMessages, pinnedSystem);
+  });
+});
+
 test("待機15分のタイマーでプロセスを破棄し、次の要求では新しく起動する", async (context) => {
   const original = globalThis.setTimeout;
   let expire: (() => void) | undefined;
