@@ -542,7 +542,7 @@ function removeRepeatedUserReminders(messages: NativeRequestMessage[], prefix: u
   }
 }
 
-function injectNativeSystemMessages(
+export function injectNativeSystemMessages(
   messages: NativeRequestMessage[],
   injections: NativeSystemInjection[],
 ): NativeRequestMessage[] {

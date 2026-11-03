@@ -6,11 +6,18 @@ export interface NativeRequestMessage {
 export function withoutCacheControl(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(withoutCacheControl);
   if (!value || typeof value !== "object") return value;
-  const output: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    if (key !== "cache_control") output[key] = withoutCacheControl(child);
-  }
+  const output = structuredClone(value) as Record<string, unknown>;
+  delete output.cache_control;
+  // input・input_schema などの利用者データには同名のキーがあり得るため、プロトコルの content だけを辿る。
+  if (Array.isArray(output.content)) output.content = output.content.map(withoutCacheControl);
   return output;
+}
+
+export function cacheBreakpointCount(value: unknown): number {
+  if (Array.isArray(value)) return value.reduce((total, child) => total + cacheBreakpointCount(child), 0);
+  if (!value || typeof value !== "object") return 0;
+  const block = value as Record<string, unknown>;
+  return Number(Object.hasOwn(block, "cache_control")) + (Array.isArray(block.content) ? cacheBreakpointCount(block.content) : 0);
 }
 
 function setCacheBreakpoint(message: NativeRequestMessage): void {

@@ -4,3 +4,9 @@ node_modules/
 .DS_Store
 spike/
 .agents/
+.reviews/
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]

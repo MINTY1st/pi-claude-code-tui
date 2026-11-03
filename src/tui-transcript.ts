@@ -1,5 +1,7 @@
-import { type NativeRequestMessage, setReplayCacheBreakpoints, withoutCacheControl } from "./cache-breakpoints.ts";
+import { type NativeRequestMessage, cacheBreakpointCount, setReplayCacheBreakpoints, withoutCacheControl } from "./cache-breakpoints.ts";
 import type { NativeFrame } from "./native-types.ts";
+import { injectNativeSystemMessages } from "./claude-cli.ts";
+import type { NativeSystemInjection } from "./transcript.ts";
 
 const REMINDER_PREFIX = "<system-reminder>";
 
@@ -19,29 +21,48 @@ function reminderPrefix(content: unknown): unknown[] {
 // /clear 直後の TUI が先頭 user の直後に置く system は環境情報の1件だけ（2.1.316 で実測）。それ以外の system
 // （<total_tokens> など）は毎ターン値が変わりキャッシュの接頭辞を崩すため、Pi の履歴へは持ち込まない
 function environmentMessages(messages: NativeRequestMessage[]): NativeRequestMessage[] {
-  return messages[1]?.role === "system" ? [structuredClone(messages[1])] : [];
+  return messages[1]?.role === "system" ? [withoutCacheControl(messages[1]) as NativeRequestMessage] : [];
 }
 
-// Anthropic のキャッシュ区切りは4つまでで、system プロンプトが2つ使う。Pi の履歴に残った区切りを外し、
-// 付け直しは setReplayCacheBreakpoints に任せて messages 側を2つ以内に収める
+// 過去の配置から引き継いだ区切りは、現在の本文で使える枠数と一致するとは限らない。
 function piMessages(frames: NativeFrame[]): NativeRequestMessage[] {
   return frames.map((frame) => withoutCacheControl(frame.message) as NativeRequestMessage);
 }
 
+// system と tools の区切り数はモデルと Claude Code の版で変わるため、messages に使える残りを実際の本文から求める。
+function limitCacheBreakpoints(messages: NativeRequestMessage[], outside: unknown): void {
+  let excess = cacheBreakpointCount(outside) + cacheBreakpointCount(messages) - 4;
+  for (const message of messages) {
+    if (excess <= 0) break;
+    const count = cacheBreakpointCount(message);
+    message.content = withoutCacheControl(message.content);
+    excess -= count;
+  }
+  if (excess > 0) throw new Error("Claude Code system and tools exceed the cache breakpoint limit");
+}
+
 /** 対話 TUI が送った本文の messages を、Pi の会話で丸ごと置き換える。system・tools などはそのまま残す。 */
-export function replaceTranscript(body: Buffer, frames: NativeFrame[]): Buffer {
-  const payload = JSON.parse(body.toString("utf8")) as { messages?: NativeRequestMessage[] };
+export function replaceTranscript(body: Buffer, frames: NativeFrame[], systemPrompt = "", injections: NativeSystemInjection[] = []): Buffer {
+  const payload = JSON.parse(body.toString("utf8")) as { messages?: NativeRequestMessage[]; system?: unknown; tools?: unknown };
   const messages = payload.messages ?? [];
   if (messages[0]?.role !== "user") throw new Error("Claude Code request is missing its initial user message");
   if (frames[0]?.type !== "user") throw new Error("Pi conversation must start with a user message");
 
   const [first, ...later] = piMessages(frames);
-  const replaced = [
-    { role: "user", content: [...reminderPrefix(messages[0].content), ...(first!.content as unknown[])] },
+  const replaced = injectNativeSystemMessages([
+    {
+      role: "user",
+      content: [
+        ...reminderPrefix(messages[0].content),
+        ...(systemPrompt ? [{ type: "text", text: systemPrompt }] : []),
+        ...(first!.content as unknown[]),
+      ],
+    },
     ...environmentMessages(messages),
     ...later,
-  ];
+  ], injections);
   setReplayCacheBreakpoints(replaced);
+  limitCacheBreakpoints(replaced, [payload.system, payload.tools]);
   payload.messages = replaced;
   return Buffer.from(JSON.stringify(payload));
 }

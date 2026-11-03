@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { bracketedPaste, plainScreen, type ScreenState, screenState, terminalReplies, turnFinished } from "./tui-screen.ts";
+import { bracketedPaste, createTerminalResponder, plainScreen, type ScreenState, screenState, turnFinished } from "./tui-screen.ts";
 
 export interface TuiSessionOptions {
   command: string;
@@ -35,7 +35,10 @@ const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(reso
 /** 対話 TUI の Claude Code を PTY で動かし、入力待ちの検知と貼り付けを受け持つ */
 export class TuiSession {
   private raw = "";
+  private readonly respond = createTerminalResponder();
   private exited = false;
+  private failure?: Error;
+  private stderr = "";
   private readonly exit: Promise<void>;
 
   private constructor(
@@ -45,7 +48,15 @@ export class TuiSession {
     child.stdout!.setEncoding("utf8");
     child.stdout!.on("data", (chunk: string) => this.receive(chunk));
     child.stdin!.on("error", () => undefined);
-    this.exit = new Promise((resolve) => child.on("exit", () => resolve()));
+    child.stderr!.setEncoding("utf8");
+    child.stderr!.on("data", (chunk: string) => (this.stderr = (this.stderr + chunk).slice(-2_000)));
+    this.exit = new Promise((resolve) => {
+      child.once("exit", () => resolve());
+      child.once("error", (error) => {
+        this.failure = new Error(`Unable to start Python PTY helper: ${error.message}`);
+        resolve();
+      });
+    });
     void this.exit.then(() => (this.exited = true));
   }
 
@@ -66,7 +77,7 @@ export class TuiSession {
     return plainScreen(this.raw).replace(/\s+/g, " ").trim().slice(-600);
   }
 
-  async ready(): Promise<void> {
+  async ready(signal?: AbortSignal): Promise<void> {
     const timeoutMs = this.options.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS;
     const trust = { yesSince: 0, lastDown: 0 };
     let promptSince = 0;
@@ -82,7 +93,7 @@ export class TuiSession {
       }
       promptSince ||= Date.now();
       return Date.now() - promptSince >= SETTLE_MS;
-    });
+    }, signal);
   }
 
   /** 中身は relay が Pi の会話に差し替えるため、貼る文は1回分のリクエストを起こすきっかけでしかない */
@@ -116,7 +127,7 @@ export class TuiSession {
   }
 
   private receive(chunk: string): void {
-    for (const reply of terminalReplies(chunk)) this.write(reply);
+    for (const reply of this.respond(chunk)) this.write(reply);
     this.raw = (this.raw + chunk).slice(-SCREEN_KEEP);
   }
 
@@ -149,10 +160,12 @@ export class TuiSession {
       : "Claude Code did not finish loading Pi's tool list";
   }
 
-  private async poll(timeoutMs: number, describe: () => string, done: (state: ScreenState) => boolean): Promise<void> {
+  private async poll(timeoutMs: number, describe: () => string, done: (state: ScreenState) => boolean, signal?: AbortSignal): Promise<void> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
-      if (this.exited) throw new Error(`Claude Code ended: ${this.lastScreen()}`);
+      signal?.throwIfAborted();
+      if (this.failure) throw this.failure;
+      if (this.exited) throw new Error(`Claude Code ended: ${this.lastScreen() || this.stderr.trim()}`);
       if (done(screenState(plainScreen(this.raw)))) return;
       if (Date.now() >= deadline) throw new Error(`${describe()} within ${timeoutMs}ms: ${this.lastScreen()}`);
       await sleep(POLL_MS);

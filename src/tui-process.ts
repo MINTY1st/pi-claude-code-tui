@@ -12,6 +12,7 @@ import { TuiSession } from "./pty-session.ts";
 import { TOOL_PREFIX } from "./transcript.ts";
 import { replaceTranscript } from "./tui-transcript.ts";
 import { TurnRelay } from "./turn-relay.ts";
+import { abortTuiRequests, trackTuiRequest } from "./tui-lifecycle.ts";
 
 export const TUI_MODE_ENV = "PI_CLAUDE_CODE_TUI";
 export const TUI_TRUST_ENV = "PI_CLAUDE_CODE_TUI_TRUST";
@@ -32,11 +33,10 @@ export function tuiModeEnabled(env: Record<string, string | undefined>): boolean
   return env[TUI_MODE_ENV] !== "0";
 }
 
-export function tuiArgs(input: { model: string; mcpConfig: string; systemPath: string; settingsPath: string }): string[] {
+export function tuiArgs(input: { model: string; mcpConfig: string; settingsPath: string }): string[] {
   return [
     "--model", input.model,
     "--tools", "",
-    "--system-prompt-file", input.systemPath,
     "--settings", input.settingsPath,
     "--setting-sources", "",
     "--strict-mcp-config",
@@ -55,7 +55,7 @@ export function tuiEnvironment(env: Record<string, string | undefined>): Record<
 }
 
 function fingerprint(input: RunClaudeInput, env: Record<string, string>): string {
-  const material = { cwd: resolve(input.cwd ?? process.cwd()), env, extraBody: input.extraBody, manifest: input.manifest, model: input.model, systemPrompt: input.systemPrompt, upstreamUrl: input.upstreamUrl };
+  const material = { cwd: resolve(input.cwd ?? process.cwd()), env, extraBody: input.extraBody, manifest: input.manifest, model: input.model, systemPrompt: input.systemPrompt, timeoutMs: input.timeoutMs, upstreamUrl: input.upstreamUrl };
   return createHash("sha256").update(JSON.stringify(material)).digest("hex");
 }
 
@@ -83,6 +83,8 @@ class TuiWorker {
   lastUsed = Date.now();
   private pendingClear?: Promise<void>;
   private broken = false;
+  private expiryTimer?: NodeJS.Timeout;
+  private closing?: Promise<void>;
 
   private constructor(readonly fingerprint: string, private readonly root: string, private readonly relay: TurnRelay, private readonly session: TuiSession) {}
 
@@ -92,22 +94,22 @@ class TuiWorker {
     const relay = new TurnRelay(input.upstreamUrl ?? "https://api.anthropic.com", input.timeoutMs ?? DEFAULT_TIMEOUT_MS);
     let session: TuiSession | undefined;
     try {
-      const paths = { tools: join(root, "tools.json"), settings: join(root, "settings.json"), system: join(root, "system.md"), listed: join(root, "listed") };
+      const paths = { tools: join(root, "tools.json"), settings: join(root, "settings.json"), listed: join(root, "listed") };
       await Promise.all([
         writeFile(paths.tools, JSON.stringify(input.manifest), "utf8"),
         writeFile(paths.settings, JSON.stringify({ env: { CLAUDE_CODE_EXTRA_BODY: JSON.stringify(input.extraBody) } }), "utf8"),
-        writeFile(paths.system, input.systemPrompt, "utf8"),
       ]);
       const mcpConfig = JSON.stringify({ mcpServers: { pi: { command: process.execPath, args: [INERT_MCP_PATH, paths.tools, paths.listed] } } });
       session = TuiSession.start({
         command,
-        args: tuiArgs({ model: input.model, mcpConfig, systemPath: paths.system, settingsPath: paths.settings }),
+        args: tuiArgs({ model: input.model, mcpConfig, settingsPath: paths.settings }),
         cwd: input.cwd ?? process.cwd(),
         env: tuiEnvironment({ ...env, ANTHROPIC_BASE_URL: await relay.start() }),
         listedMarker: paths.listed,
         trustFolder: envFlagEnabled(env[TUI_TRUST_ENV]),
+        readyTimeoutMs: input.timeoutMs,
       });
-      await session.ready();
+      await session.ready(input.signal);
       return new TuiWorker(print, root, relay, session);
     } catch (error) {
       await session?.close();
@@ -117,15 +119,31 @@ class TuiWorker {
     }
   }
 
+  release(sessionId: string): void {
+    this.busy = false;
+    this.expiryTimer = setTimeout(() => {
+      if (workers.get(sessionId) === this) workers.delete(sessionId);
+      void this.close().catch(() => undefined);
+    }, IDLE_LIFETIME_MS);
+    this.expiryTimer.unref();
+  }
+
+  reserve(): void {
+    clearTimeout(this.expiryTimer);
+    this.busy = true;
+  }
+
   usable(print: string): boolean {
     return !this.busy && !this.broken && this.session.isAlive() && this.fingerprint === print && Date.now() - this.lastUsed < IDLE_LIFETIME_MS;
   }
 
   async run(input: RunClaudeInput): Promise<RunClaudeOutput> {
+    input.signal?.throwIfAborted();
     await this.pendingClear;
+    input.signal?.throwIfAborted();
     if (this.broken) throw new Error("Claude Code's interactive mode did not come back from /clear");
     const deliver = (event: AnthropicStreamEvent) => input.onEvent?.(event);
-    this.relay.beginTurn(deliver, (body) => replaceTranscript(body, input.frames), input.betas);
+    this.relay.beginTurn(deliver, (body) => replaceTranscript(body, input.frames, input.systemPrompt, input.nativeSystemInjections), input.betas);
     const abort = () => void this.close();
     input.signal?.addEventListener("abort", abort, { once: true });
     try {
@@ -163,7 +181,12 @@ class TuiWorker {
     };
   }
 
-  async close(): Promise<void> {
+  close(): Promise<void> {
+    return this.closing ??= this.dispose();
+  }
+
+  private async dispose(): Promise<void> {
+    clearTimeout(this.expiryTimer);
     this.broken = true;
     this.relay.abort();
     await this.session.close();
@@ -178,7 +201,7 @@ async function acquire(input: RunClaudeInput, env: Record<string, string>): Prom
   const print = fingerprint(input, env);
   const cached = input.sessionId ? workers.get(input.sessionId) : undefined;
   if (cached?.usable(print)) {
-    cached.busy = true;
+    cached.reserve();
     return { worker: cached, retained: true };
   }
   if (cached && !cached.busy) {
@@ -186,20 +209,24 @@ async function acquire(input: RunClaudeInput, env: Record<string, string>): Prom
     await cached.close();
   }
   const worker = await TuiWorker.create(input, env, print);
-  worker.busy = true;
+  worker.reserve();
   // 並行したリクエストや Pi のセッション ID が無いリクエストは、使い捨てのプロセスで受ける
   const retained = !!input.sessionId && !workers.has(input.sessionId) && workers.size < MAX_CACHED;
   if (retained) workers.set(input.sessionId!, worker);
   return { worker, retained };
 }
 
-export async function runTuiRequest(input: RunClaudeInput): Promise<RunClaudeOutput> {
+export function runTuiRequest(input: RunClaudeInput): Promise<RunClaudeOutput> {
+  return trackTuiRequest(input.sessionId, input.signal, (signal) => runTrackedRequest({ ...input, signal }));
+}
+
+async function runTrackedRequest(input: RunClaudeInput): Promise<RunClaudeOutput> {
   input.signal?.throwIfAborted();
   const env = processEnvironment(input.env, input.extraBody);
   const { worker, retained } = await acquire(input, env);
   try {
     const output = await worker.run(input);
-    if (retained) worker.busy = false;
+    if (retained) worker.release(input.sessionId!);
     else await worker.close();
     return output;
   } catch (error) {
@@ -210,10 +237,12 @@ export async function runTuiRequest(input: RunClaudeInput): Promise<RunClaudeOut
 }
 
 export async function closeTuiProcesses(sessionId?: string): Promise<void> {
+  const pending = abortTuiRequests(sessionId);
   const targets = sessionId ? [workers.get(sessionId)].filter((worker): worker is TuiWorker => !!worker) : [...workers.values()];
   if (sessionId) workers.delete(sessionId);
   else workers.clear();
   await Promise.allSettled(targets.map((worker) => worker.close()));
+  await pending;
 }
 
 registerSessionResourceCleanup((sessionId) => {
