@@ -18,6 +18,7 @@ import {
 import { describeUsageCreditsRejection } from "./billing.ts";
 import { runClaudeRequest } from "./claude-cli.ts";
 import { runTuiRequest, tuiModeEnabled } from "./tui-process.ts";
+import { repairToolHistory } from "./tool-history.ts";
 import { nativeModel, supportsNativeToolChanges } from "./model-catalog.ts";
 import type { AnthropicStreamEvent, NativeContentBlock, NativeMessage, NativeUsage } from "./native-types.ts";
 import {
@@ -348,11 +349,12 @@ export function streamClaudeCode(
 
   void (async () => {
     try {
+      const repairedContext = { ...context, messages: repairToolHistory(context.messages) };
       const nativeTranscript = prepareNativeTranscript(
-        context.messages,
+        repairedContext.messages,
         supportsNativeToolChanges(model.id),
       );
-      const transcript = nativeTranscript ? context : collapseSystemMessages(context);
+      const transcript = nativeTranscript ? repairedContext : collapseSystemMessages(repairedContext);
       const initialSystem = getInitialSystemMessage(transcript.messages);
       const systemPrompt = nativeTranscript
         ? initialSystem
