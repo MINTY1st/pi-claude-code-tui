@@ -62,6 +62,7 @@ Claude Code manages authentication. The extension does not read or copy credenti
 
 - Claude Code updates may break terminal-output detection. One live test timed out; retries passed, but the cause remains unknown.
 - Pi's prompt is carried in a user message, not as system-level instructions. Complex tool schemas may be simplified; mid-conversation tool changes work only on supported models.
+- Cross-provider tool-call IDs are normalized for Anthropic on outgoing replay only; saved history is unchanged. See [replay and folder trust](docs/cross-provider-replay.md).
 - Each call replays Pi's history after `/clear`, rather than resuming a native Claude Code conversation. Only the first upstream request is forwarded; additional requests in that call are rejected.
 - One process is cached per session, two across the extension, with a 15-minute idle expiry. Concurrent requests and requests without a session ID use disposable workers.
 - Cleanup covers the same process group only, not descendants escaping with `setsid`/`setpgid` or SIGKILL of the PTY helper itself.
