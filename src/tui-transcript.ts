@@ -41,8 +41,27 @@ function limitCacheBreakpoints(messages: NativeRequestMessage[], outside: unknow
   if (excess > 0) throw new Error("Claude Code system and tools exceed the cache breakpoint limit");
 }
 
+export interface InitialContext {
+  userPrefix?: unknown[];
+  systemMessages?: unknown[];
+}
+
+// 前置きには git status があり、/clear のたびに取り直されて変わる（2.1.317 で実測）。変わると後ろの Pi の会話が
+// 毎回キャッシュの書き直しになるため、最初のものを Pi のセッションに残して使い続ける（Claude Code 自身も会話開始時点の
+// スナップショットとして扱う）
+export function initialContext(body: Buffer): Required<InitialContext> {
+  const messages = (JSON.parse(body.toString("utf8")) as { messages?: NativeRequestMessage[] }).messages ?? [];
+  return { userPrefix: reminderPrefix(messages[0]?.content), systemMessages: environmentMessages(messages) };
+}
+
 /** 対話 TUI が送った本文の messages を、Pi の会話で丸ごと置き換える。system・tools などはそのまま残す。 */
-export function replaceTranscript(body: Buffer, frames: NativeFrame[], systemPrompt = "", injections: NativeSystemInjection[] = []): Buffer {
+export function replaceTranscript(
+  body: Buffer,
+  frames: NativeFrame[],
+  systemPrompt = "",
+  injections: NativeSystemInjection[] = [],
+  pinned: InitialContext = {},
+): Buffer {
   const payload = JSON.parse(body.toString("utf8")) as { messages?: NativeRequestMessage[]; system?: unknown; tools?: unknown };
   const messages = payload.messages ?? [];
   if (messages[0]?.role !== "user") throw new Error("Claude Code request is missing its initial user message");
@@ -53,12 +72,12 @@ export function replaceTranscript(body: Buffer, frames: NativeFrame[], systemPro
     {
       role: "user",
       content: [
-        ...reminderPrefix(messages[0].content),
+        ...(pinned.userPrefix ? (withoutCacheControl(pinned.userPrefix) as unknown[]) : reminderPrefix(messages[0].content)),
         ...(systemPrompt ? [{ type: "text", text: systemPrompt }] : []),
         ...(first!.content as unknown[]),
       ],
     },
-    ...environmentMessages(messages),
+    ...(pinned.systemMessages ? (withoutCacheControl(pinned.systemMessages) as NativeRequestMessage[]) : environmentMessages(messages)),
     ...later,
   ], injections);
   setReplayCacheBreakpoints(replaced);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { replaceTranscript } from "../src/tui-transcript.ts";
+import { initialContext, replaceTranscript } from "../src/tui-transcript.ts";
 import type { NativeFrame } from "../src/native-types.ts";
 import type { NativeSystemInjection } from "../src/transcript.ts";
 
@@ -33,9 +33,29 @@ function tuiBody(extra: Record<string, unknown> = {}) {
 const userFrame = (text: string): NativeFrame => ({ type: "user", message: { role: "user", content: [{ type: "text", text }] } });
 const assistantFrame = (content: unknown[]): NativeFrame => ({ type: "assistant", message: { role: "assistant", content } });
 
-function rewrite(body: unknown, frames: NativeFrame[], systemPrompt = "", injections: NativeSystemInjection[] = []) {
-  return JSON.parse(replaceTranscript(Buffer.from(JSON.stringify(body)), frames, systemPrompt, injections).toString("utf8"));
+function rewrite(body: unknown, frames: NativeFrame[], systemPrompt = "", injections: NativeSystemInjection[] = [], pinned = {}) {
+  return JSON.parse(replaceTranscript(Buffer.from(JSON.stringify(body)), frames, systemPrompt, injections, pinned).toString("utf8"));
 }
+
+test("反例: /clear のたびに git status が変わっても、保存済みの前置きと環境を使ってキャッシュの接頭辞を保つ", () => {
+  const startReminder = { type: "text", text: "<system-reminder>\n# gitStatus\nRecent commits: aaa\n</system-reminder>" };
+  const startEnvironment = { role: "system", content: [{ type: "text", text: "# Environment at start" }] };
+  const body = tuiBody();
+  body.messages[0]!.content[0] = { type: "text", text: "<system-reminder>\n# gitStatus\nRecent commits: bbb aaa\n</system-reminder>" };
+  const pinned = { userPrefix: [startReminder], systemMessages: [startEnvironment] };
+  const before = structuredClone(pinned);
+  const result = rewrite(body, [userFrame("質問")], "Pi instructions", [], pinned);
+  assert.deepEqual(result.messages[0].content.map((block: { text: string }) => block.text), [startReminder.text, "Pi instructions", "質問"]);
+  assert.deepEqual(result.messages.map((message: { role: string }) => message.role), ["user", "system"]);
+  assert.equal(result.messages[1].content[0].text, "# Environment at start");
+  assert.deepEqual(pinned, before);
+});
+
+test("initialContext は先頭 user の system-reminder と環境 system を区切りなしで取り出す", () => {
+  const context = initialContext(Buffer.from(JSON.stringify(tuiBody())));
+  assert.deepEqual(context.userPrefix, [reminder]);
+  assert.deepEqual(context.systemMessages, [{ role: "system", content: [{ type: "text", text: "# Environment" }] }]);
+});
 
 test("Pi のプロンプトは先頭 user の会話より前に一度だけ置き、上流 system は変更しない", () => {
   const body = tuiBody();
