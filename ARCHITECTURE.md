@@ -1,76 +1,80 @@
-# 内部構成
+# Architecture
 
-## リクエスト経路
+## Request flow
 
-`stream.ts` は、既定で `runTuiRequest` を呼ぶ。`PI_CLAUDE_CODE_TUI=0` のときだけ、元の `runClaudeRequest` による `claude -p` と stream-json の経路を使う。どちらも Pi がツールを実行し、Claude Code の MCP はツール一覧を提示してダミーの実行結果を返すだけである。
+`stream.ts` calls `runTuiRequest` by default. Setting `PI_CLAUDE_CODE_TUI=0` selects the original `runClaudeRequest` path using `claude -p` and stream-json. Pi executes tools in both modes. Claude Code's inert MCP server advertises the tool inventory and returns placeholder results only.
 
 ```mermaid
 flowchart TD
-  P[Pi の会話・現在のツール] --> S[streamClaudeCode]
-  S -->|既定| T[TuiWorker]
+  P[Pi conversation and tools] --> S[streamClaudeCode]
+  S -->|Default| T[TuiWorker]
   S -->|TUI=0| C[ClaudeProcess / claude -p]
-  T --> Y[Python PTY / 対話 claude]
+  T --> Y[Python PTY / interactive claude]
   Y --> R[TurnRelay]
   C --> R
   T --> H[replaceTranscript]
   H --> R
-  R -->|各 Pi ターンの最初の1本| A[上流 API]
-  R -->|同じターンの追加リクエストすべて| E[HTTP 400]
-  A -->|SSE・使用量ヘッダー| R
-  R --> V[Pi のイベント形式へ変換]
+  R -->|First request per model call| A[Upstream API]
+  R -->|All additional requests in that call| E[HTTP 400]
+  A -->|SSE and usage headers| R
+  R --> V[Translate into Pi events]
   V --> P
-  P --> X[Pi がツールを実行]
+  P --> X[Pi executes tools]
   X --> P
 ```
 
-## 起動とフォルダ信頼
+## Startup and folder trust
 
-`TuiSession` は `python3 src/pty-helper.py` 経由で200列・50行の PTY に Claude Code を起動する。`createTerminalResponder` がチャンク末尾の未完了な端末問い合わせを保持し、分割配送と連続する問い合わせにも一度ずつ応答する。入力欄が300ms安定したことと inert MCP の tools/list 完了マーカーの両方を確認してから貼り付ける。既定の起動待ちは45秒で、要求に `timeoutMs` があればその値を使う。
+`TuiSession` starts Claude Code in a 200-column, 50-row PTY through `python3 src/pty-helper.py`. `createTerminalResponder` retains incomplete terminal-query suffixes and responds once to each query, including queries split across chunks or repeated in one chunk. Input is submitted only after the prompt has remained stable for 300 ms and the inert MCP `tools/list` completion marker exists. The default ready timeout is 45 seconds; a supplied `timeoutMs` overrides it.
 
-フォルダ信頼確認は、`PI_CLAUDE_CODE_TUI_TRUST=1` のときだけ No から下キーで Yes を選び、300ms安定してから Enter を送る。未許可の信頼確認やログイン要求はエラーで停止する。Python の起動失敗も未処理例外にせず要求のエラーとして返す。
+Folder trust is approved automatically only when `PI_CLAUDE_CODE_TUI_TRUST=1`: the session selects Yes with the down key and waits 300 ms before pressing Enter. Otherwise, a trust prompt or a sign-in prompt fails the request. A missing Python executable is surfaced as a request error rather than an unhandled process error.
 
-## 会話とキャッシュ
+## Conversation replay and caching
 
-TUI へ貼る `continue` は、上流への1回の要求を発生させるきっかけである。relay の `replaceTranscript` は、先頭 user の Claude Code 本来の system-reminder を残し、その後ろに Pi プロンプトと Pi の最初の user を置く。Pi の残りの会話と対応モデルの system／ツール差分を続け、`/clear` の痕跡や変動する末尾の system 情報は捨てる。
+Pasting `continue` into the TUI triggers one upstream request. The relay's `replaceTranscript` preserves Claude Code's leading user system-reminder blocks, then inserts Pi's prompt and first user message. It appends the rest of Pi's conversation and supported system/tool changes, discarding `/clear` artifacts and moving trailing system information.
 
-`injectNativeSystemMessages` は `claude-cli.ts` と TUI 経路で共有し、途中の指示やツール追加・削除を元の assistant 境界に復元する。入力の会話配列や差分は変更しない。Claude Code 本来の API system と tools は保持する。
+`injectNativeSystemMessages` is shared between `claude-cli.ts` and the TUI path. It restores intermediate instructions and tool changes at their original assistant boundaries without mutating input frames or injections. Claude Code's original API system prompt and tool definitions are retained.
 
-キャッシュ区切りは本文全体で4個以内にする。system と tools の区切り数を実際の本文から数え、messages には残りの枠だけを使う。環境 system の古い区切りは外し、末尾の区切りを優先して保持する。注釈の除去と個数の集計はプロトコルの content ブロックだけを辿り、tool_use.input やツール定義の input_schema に含まれる同名のキーは変更せず、区切りにも数えない。上流本来の system と tools だけで4個を超える場合は、それらを書き換えずエラーにする。
+The entire body is limited to four cache breakpoints. The actual system and tool annotations determine the remaining budget for messages. Older environment/message markers are removed before later markers. Removal and counting follow protocol `content` blocks only: identically named keys in `tool_use.input` or `input_schema` are preserved and do not count as breakpoints. If the original system and tools alone exceed four markers, the request fails without rewriting them.
 
-## ターンの境界と再利用
+## Turn boundaries and reuse
 
 ```mermaid
 stateDiagram-v2
-  [*] --> 起動待ち
-  起動待ち --> 実行中: prompt と tools/list が揃う
-  実行中 --> クリア中: 応答が完結し TUI が入力待ちへ戻る
-  クリア中 --> 実行中: 同じ設定の次の要求
-  クリア中 --> 待機中: clear 完了
-  待機中 --> 実行中: 同じ設定の次の要求
-  待機中 --> 終了: 待機15分 / セッション破棄
-  起動待ち --> 終了: 中断 / セッション破棄 / 期限切れ / 起動失敗
-  実行中 --> 終了: 中断 / 期限切れ / 不完全な応答
-  クリア中 --> 終了: clear 失敗後の再利用要求 / 待機期限 / セッション破棄
+  [*] --> Starting
+  Starting --> Running: Prompt and tools/list ready
+  Running --> Clearing: Complete response and idle TUI
+  Clearing --> Running: Next compatible request
+  Clearing --> Idle: Clear completed
+  Idle --> Running: Next compatible request
+  Idle --> Closed: 15-minute idle expiry or session disposal
+  Starting --> Closed: Abort, disposal, timeout, startup failure
+  Running --> Closed: Abort, timeout, incomplete response
+  Clearing --> Closed: Failed clear on reuse, expiry, disposal
 ```
 
-秒・分・時を含む TUI の終了行と入力欄が現れ、relay の通信が完了したら、SSE の正本から応答を返す。HTTP 200・message_stop・応答本文・使用量の数値が揃い、ツール名が Pi の現在の一覧にあることを検証する。HTTP 400 や切断途中の SSE は成功にしない。
+A completed duration line, including seconds, minutes, or hours, and a following prompt identify an idle TUI. The response is returned from the captured SSE after relay completion. HTTP 200, `message_stop`, a response message, numeric usage, and tool names from Pi's current inventory are required. HTTP 400 and truncated SSE streams are errors.
 
-成功後は次の要求までに `/clear` を非同期で実行する。再利用時にはその完了を待つ。作業フォルダ・モデル・環境・プロンプト・ツール一覧・extra body・タイムアウト・上流 URL が違えば、新しいプロセスを起動する。会話自体は毎回丸ごと復元するため、Pi の分岐・履歴編集でも TUI の前の会話を引き継がない。
+After a successful call, `/clear` runs asynchronously; reuse waits for it to finish. A different working directory, model, environment, prompt, tool manifest, extra body, timeout, or upstream URL creates a new worker. Each call restores the full Pi history, so Pi branches and edited history do not inherit the previous TUI conversation.
 
-保持するプロセスは全体で最大2個、待機期限は15分で、期限のタイマーは Node の終了を妨げない。使用開始時には期限タイマーを解除する。同一セッションへの並行要求は別プロセスに分離し、セッション ID がない要求も使い捨てにする。close は冪等で、relay・PTY・一時ディレクトリを破棄する。
+At most one worker is cached per session and two across the extension. Idle workers expire after 15 minutes using an unreferenced timer, which is cleared when work starts. Concurrent requests for the same session and requests without session IDs use disposable workers. Close is idempotent and removes the relay, PTY, and temporary directory.
 
-## 中断と認証
+## Cancellation and authentication
 
-`tui-lifecycle.ts` の `trackTuiRequest` は、キャッシュ登録より前に各要求を追跡する。起動中・実行中・使い捨ての並行要求のすべてが対象である。`closeTuiProcesses` は該当する要求のシグナルを中断し、キャッシュされた worker の close と追跡要求の清掃完了を待つ。破棄済みの要求が起動を終えても上流には送信せず、その worker を残さない。
+`tui-lifecycle.ts` tracks requests with `trackTuiRequest` before worker-cache registration, including startup and disposable concurrent workers. `closeTuiProcesses` aborts matching requests and waits for both cached-worker closure and tracked-request cleanup. A disposed request cannot complete startup and send upstream or register a surviving worker.
 
-Python helper は、stdin EOF・SIGTERM／SIGHUP／SIGINT・Claude 本体の終了・PTY 終了・中継 I/O エラーの終了経路で、forkpty の子プロセスグループを清掃する。本体の終了は、0.1秒周期の waitid(WEXITED | WNOHANG | WNOWAIT) で reap せず検出する。これにより孫が PTY を保持して EOF が来ない場合も清掃へ進む。PTY を閉じ、グループへ SIGHUP と SIGCONT を送り、0.25秒の猶予後に SIGKILL を送ってから直接の子を waitpid する。清掃前には子を reap せず、PID の再利用による誤送信を避ける。同じグループを抜けた setsid／setpgid の子孫と helper 自体への SIGKILL は保証対象外である。詳細は [ADR-0001](docs/adr/0001-pty-cleanup.md) を参照する。
+The Python helper cleans the forkpty child's process group on stdin EOF, SIGTERM/SIGHUP/SIGINT, leader exit, PTY termination, or relay I/O errors. It detects leader exit with `waitid(WEXITED | WNOHANG | WNOWAIT)` every 0.1 seconds, even if a grandchild still holds the PTY open. Cleanup closes the PTY, sends SIGHUP and SIGCONT, waits 0.25 seconds, sends SIGKILL, then calls `waitpid`. Delaying reaping prevents leader PID reuse during group cleanup. Descendants escaping with `setsid`/`setpgid` and SIGKILL of the helper itself are outside this guarantee. See [ADR-0001](docs/adr/0001-pty-cleanup.md).
 
-Claude Code が認証情報を管理する。拡張は認証ファイルを読まず、トークンを保存・更新しない。ただし認証済みリクエストのヘッダーは、ランダムな経路を持つループバック限定の relay を一時的に通過する。API キー・外部プロキシ・Bedrock・Vertex・Foundry への継承設定は従来どおり拒否する。
+Claude Code manages credentials. This extension does not read credential files or save/refresh tokens. Authenticated headers temporarily pass through a loopback-only relay with a random route. API-key, external-proxy, Bedrock, Vertex, and Foundry environment overrides remain rejected.
 
-## 課金ガード
+## Usage-credit guard
 
-`-p` 経路は rate_limit_event、TUI 経路は上流レスポンスの anthropic-ratelimit-unified-* ヘッダーを使う。`rateLimitFromHeaders` が、プラン枠の status が rejected で overage-status が allowed または allowed_warning の状態を使用量クレジットへの計上として扱う。
+The print path consumes `rate_limit_event`; the TUI path consumes upstream `anthropic-ratelimit-unified-*` headers. `rateLimitFromHeaders` treats a rejected plan status with an `allowed` or `allowed_warning` overage status as usage-credit billing.
 
-使用量クレジットへの計上が報告された応答は、明示的に許容していなければ課金エラーにする。上流のサードパーティ利用に対する拒否も再試行しない課金エラーに整形する。判定は応答後なので初回の課金を未然に防ぐ保証はなく、ヘッダーの意味や上流判定の将来の互換性も保証しない。最新状態は claude-code.rate-limit 診断に付ける。
+Unless explicitly allowed, a response reporting usage credits becomes a billing error. Upstream third-party usage rejections are also normalized to non-retryable billing errors. Detection happens after the response and cannot prevent the first charge. Future header meanings and upstream classification are not guaranteed. Diagnostics expose the latest state as `claude-code.rate-limit`.
 
-Pi プロンプトの user 配置は system 指示と同じ優先順位を持たない。実機で成功したことと、利用条件上の許可・課金計上の保証は区別する。独立レビューと実機検証の記録は [試験結果](docs/spike-2026-11-03.md) を参照する。
+Pi's prompt in a user message does not have system-level priority. Successful requests and technical review are distinct from authorization under service terms or billing guarantees. See the [test report](docs/spike-2026-11-03.md).
+
+## Design references
+
+The provider and relay are derived from [earendil-works/pi-claude-code](https://github.com/earendil-works/pi-claude-code). PTY interaction behavior was informed by [yetone/magpie](https://github.com/yetone/magpie), including terminal queries, settling delays, and prompt detection. Response capture remains relay-based, not magpie's JSONL/tap approach. Attribution and the reference MIT notice are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
