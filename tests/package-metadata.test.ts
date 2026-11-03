@@ -20,7 +20,7 @@ test("ロックファイルと動作条件がパッケージ定義に一致す�
 });
 
 test("配布物に文書と派生元・magpie の MIT 表示を含める", () => {
-  for (const file of ["docs", "LICENSE", "THIRD_PARTY_NOTICES.md"]) assert.ok(manifest.files.includes(file), file);
+  assert.deepEqual(manifest.files, ["src", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"]);
   assert.equal(manifest.license, "MIT");
   const license = readFileSync(new URL("../LICENSE", import.meta.url), "utf8");
   const notices = readFileSync(new URL("../THIRD_PARTY_NOTICES.md", import.meta.url), "utf8");
@@ -41,7 +41,7 @@ test("Pi ギャラリー向けのキーワード・拡張定義・ホスト依�
 });
 
 test("公開する Markdown 文書をすべて英語で記載する", () => {
-  for (const file of ["README.md", "ARCHITECTURE.md", "THIRD_PARTY_NOTICES.md", "docs/spike-2026-11-03.md", "docs/adr/0001-pty-cleanup.md"]) {
+  for (const file of ["README.md", "THIRD_PARTY_NOTICES.md"]) {
     const content = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
     assert.doesNotMatch(content, /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u, file);
   }
