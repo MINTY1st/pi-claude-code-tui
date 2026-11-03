@@ -120,3 +120,27 @@ test("surfaces an error event from an otherwise successful SSE stream", async ()
     await new Promise<void>((resolve) => upstream.close(() => resolve()));
   }
 });
+
+test("上流のレスポンスヘッダーから rateLimit を作り、ターンの始めに消す（対話 TUI には rate_limit_event が無いため）", async () => {
+  const upstream = http.createServer((_request, response) => {
+    response.writeHead(200, {
+      "content-type": "text/event-stream",
+      "anthropic-ratelimit-unified-status": "rejected",
+      "anthropic-ratelimit-unified-overage-status": "allowed",
+    });
+    response.end(`data: ${JSON.stringify({ type: "message_stop" })}\n\n`);
+  });
+  const relay = new TurnRelay(`http://127.0.0.1:${await listen(upstream)}`, 5_000);
+  try {
+    const baseUrl = await relay.start();
+    await (await fetch(`${baseUrl}/v1/messages`, { method: "POST", body: "{}" })).text();
+    await relay.settled();
+    assert.equal(relay.rateLimit?.isUsingOverage, true);
+    relay.beginTurn(() => undefined);
+    assert.equal(relay.rateLimit, undefined);
+  } finally {
+    await relay.close();
+    upstream.close();
+  }
+});
+

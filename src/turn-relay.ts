@@ -3,6 +3,8 @@ import * as https from "node:https";
 import { randomBytes } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import type { AnthropicStreamEvent, NativeContentBlock, NativeMessage } from "./native-types.ts";
+import type { RateLimitInfo } from "./billing.ts";
+import { rateLimitFromHeaders } from "./rate-limit-headers.ts";
 
 function copy<T>(value: T): T {
   return structuredClone(value);
@@ -117,6 +119,8 @@ export class TurnRelay {
   denied = 0;
   status?: number;
   requestId?: string;
+  /** Plan-limit status read from the upstream response headers. */
+  rateLimit?: RateLimitInfo;
   failure?: string;
   errorBody = Buffer.alloc(0);
   originalRequestBody?: Buffer;
@@ -173,6 +177,7 @@ export class TurnRelay {
     this.denied = 0;
     this.status = undefined;
     this.requestId = undefined;
+    this.rateLimit = undefined;
     this.failure = undefined;
     this.errorBody = Buffer.alloc(0);
     this.originalRequestBody = undefined;
@@ -304,6 +309,7 @@ export class TurnRelay {
       this.status = upstreamResponse.statusCode;
       this.requestId =
         String(upstreamResponse.headers["request-id"] ?? upstreamResponse.headers["x-request-id"] ?? "") || undefined;
+      this.rateLimit = rateLimitFromHeaders(upstreamResponse.headers);
 
       const responseHeaders: http.OutgoingHttpHeaders = {};
       for (const [name, value] of Object.entries(upstreamResponse.headers)) {

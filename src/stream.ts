@@ -17,6 +17,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { describeUsageCreditsRejection } from "./billing.ts";
 import { runClaudeRequest } from "./claude-cli.ts";
+import { runTuiRequest, tuiModeEnabled } from "./tui-process.ts";
 import { nativeModel, supportsNativeToolChanges } from "./model-catalog.ts";
 import type { AnthropicStreamEvent, NativeContentBlock, NativeMessage, NativeUsage } from "./native-types.ts";
 import {
@@ -371,7 +372,9 @@ export function streamClaudeCode(
       const translator = new EventTranslator(model, output, stream, preparedTools.names);
 
       stream.push({ type: "start", partial: output });
-      const response = await runClaudeRequest({
+      // claude -p は entrypoint=sdk-cli として5時間枠を約2倍で数えられるため、既定は対話 TUI（anthropics/claude-code#97074）
+      const runRequest = tuiModeEnabled({ ...process.env, ...options?.env }) ? runTuiRequest : runClaudeRequest;
+      const response = await runRequest({
         model: nativeModel(model.id),
         cwd: process.cwd(),
         frames,
