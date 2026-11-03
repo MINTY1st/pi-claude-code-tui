@@ -5,11 +5,11 @@ import { streamClaudeCode } from "./stream.ts";
 
 const PROVIDER_ENV_NAMES = ["PI_CLAUDE_CODE_COMMAND", "PI_CLAUDE_CODE_CONFIG_DIR", "CLAUDE_CONFIG_DIR"] as const;
 
-async function providerEnvironment(ctx: AuthContext): Promise<ProviderEnv | undefined> {
+async function providerEnvironment(context: AuthContext): Promise<ProviderEnv | undefined> {
   const env: ProviderEnv = {};
   await Promise.all(
     PROVIDER_ENV_NAMES.map(async (name) => {
-      const value = await ctx.env(name);
+      const value = await context.env(name);
       if (value !== undefined) env[name] = value;
     }),
   );
@@ -44,8 +44,8 @@ export function createClaudeCodeProvider() {
         // Report the external Claude Code subscription as OAuth-shaped auth so
         // Pi can label list-price accounting as "(sub)". Requests still resolve
         // through this ambient method; credentials remain owned by Claude Code.
-        async check({ ctx, signal }) {
-          const providerEnv = await providerEnvironment(ctx);
+        async check({ ctx: context, signal }) {
+          const providerEnv = await providerEnvironment(context);
           lastProviderEnv = providerEnv;
           const status = await getClaudeStatus(claudeCodeEnv(), signal);
           // Only report the provider as configured when Claude Code is
@@ -56,9 +56,9 @@ export function createClaudeCodeProvider() {
             source: status.subscription ? `Claude Code ${status.plan ?? "subscription"}` : "Claude Code CLI",
           };
         },
-        async resolve({ ctx, signal }) {
+        async resolve({ ctx: context, signal }) {
           signal.throwIfAborted();
-          const providerEnv = await providerEnvironment(ctx);
+          const providerEnv = await providerEnvironment(context);
           lastProviderEnv = providerEnv;
           return {
             auth: { apiKey: "external-process" },
