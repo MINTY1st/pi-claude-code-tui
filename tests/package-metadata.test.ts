@@ -32,7 +32,7 @@ test("配布物に文書と派生元・magpie の MIT 表示を含める", () =>
 });
 
 test("Pi ギャラリー向けのキーワード・拡張定義・ホスト依存を保持する", () => {
-  for (const keyword of ["pi-package", "provider", "tui", "pty"]) assert.ok(manifest.keywords.includes(keyword), keyword);
+  for (const keyword of ["pi-package", "pi", "provider", "tui", "pty"]) assert.ok(manifest.keywords.includes(keyword), keyword);
   assert.deepEqual(manifest.pi.extensions, ["./src/index.ts"]);
   for (const dependency of ["@earendil-works/pi-ai", "@earendil-works/pi-coding-agent"]) {
     assert.equal(manifest.peerDependencies[dependency], "*");
