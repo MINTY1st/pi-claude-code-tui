@@ -25,6 +25,20 @@ test("中断・失敗したアシスタント応答は履歴から除く", () =>
   assert.deepEqual(repaired.map((message) => message.role), ["user", "user"]);
 });
 
+test("除いたアシスタント応答に付いていたツール結果も除く", () => {
+  const repaired = repairToolHistory([user("a"), assistant("aborted", ["call_a"]), result("call_a"), user("b")]);
+  assert.deepEqual(repaired.map((message) => message.role), ["user", "user"]);
+});
+
+test("同じIDが再利用された後続の正常なツール結果は残す", () => {
+  const retried = result("call_0");
+  const repaired = repairToolHistory([
+    user("a"), assistant("aborted", ["call_0"]), result("call_0"), assistant("toolUse", ["call_0"]), retried, user("b"),
+  ]);
+  assert.deepEqual(repaired.map((message) => message.role), ["user", "assistant", "toolResult", "user"]);
+  assert.equal(repaired[2], retried);
+});
+
 test("結果のないツール呼び出しには次のユーザー発言の前にエラー結果を補う", () => {
   const repaired = repairToolHistory([user("a"), assistant("toolUse", ["call_1", "call_2"]), result("call_1"), user("b")]);
   assert.deepEqual(repaired.map((message) => message.role), ["user", "assistant", "toolResult", "toolResult", "user"]);
