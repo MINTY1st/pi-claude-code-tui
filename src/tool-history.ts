@@ -1,5 +1,23 @@
 import type { AssistantMessage, Message, ToolCall, ToolResultMessage } from "@earendil-works/pi-ai";
 
+function isFailedTurn(message: Message): message is AssistantMessage {
+  return message.role === "assistant" && (message.stopReason === "error" || message.stopReason === "aborted");
+}
+
+// Results of a dropped turn must go too, or they would reference a missing tool_use.
+// Scope ends at the next assistant turn because some providers reuse ids like call_0.
+function withoutFailedTurns(messages: Message[]): Message[] {
+  const dropped = new Set<string>();
+  return messages.filter((message) => {
+    if (message.role === "assistant") dropped.clear();
+    if (isFailedTurn(message)) {
+      for (const block of message.content) if (block.type === "toolCall") dropped.add(block.id);
+      return false;
+    }
+    return !(message.role === "toolResult" && dropped.has(message.toolCallId));
+  });
+}
+
 // Mirrors pi-ai's transformMessages (not exported): Anthropic rejects a tool_use
 // that is not answered by a tool_result in the next message, which happens when
 // a turn was aborted or failed, possibly under another provider.
@@ -28,12 +46,10 @@ export function repairToolHistory(messages: Message[]): Message[] {
     heldSystem.length = 0;
   };
 
-  for (const message of messages) {
+  for (const message of withoutFailedTurns(messages)) {
     if (message.role === "assistant") {
       closePending();
-      const assistant = message as AssistantMessage;
-      if (assistant.stopReason === "error" || assistant.stopReason === "aborted") continue;
-      pendingCalls = assistant.content.filter((block): block is ToolCall => block.type === "toolCall");
+      pendingCalls = message.content.filter((block): block is ToolCall => block.type === "toolCall");
       repaired.push(message);
     } else if (message.role === "toolResult") {
       answered.add(message.toolCallId);
