@@ -11,6 +11,7 @@ import {
 import { nativeSystemBlocks, prepareTools, sanitizeSurrogates, TOOL_PREFIX } from "./tool-config.ts";
 export { buildExtraBody, normalizeInputSchema, prepareTools, TOOL_PREFIX, type ToolManifestEntry } from "./tool-config.ts";
 import { normalizeFrameToolIds } from "./tool-call-ids.ts";
+import { API_ID } from "./model-catalog.ts";
 import type { NativeContentBlock, NativeFrame, NativeMessage } from "./native-types.ts";
 
 export const NATIVE_REPLAY_DIAGNOSTIC = "claude-code.native-assistant.v1";
@@ -153,7 +154,17 @@ function canonicalAssistantContent(message: AssistantMessage): NativeContentBloc
   return blocks;
 }
 
+// Only Anthropic-issued thinking signatures can be replayed; other providers
+// (OpenAI responses, OpenAI-compatible proxies) sign with their own format.
+const ANTHROPIC_SIGNED_APIS = new Set<string>([API_ID, "anthropic-messages"]);
+
+function withoutForeignThinking(message: AssistantMessage): AssistantMessage {
+  if (ANTHROPIC_SIGNED_APIS.has(message.api)) return message;
+  return { ...message, content: message.content.filter((block) => block.type !== "thinking") };
+}
+
 function assistantContent(message: AssistantMessage): NativeContentBlock[] {
+  message = withoutForeignThinking(message);
   const carrier = replayCarrier(message);
   if (carrier && projectionsEqual(assistantProjection(message), carrier.projection)) {
     return clone(carrier.message.content);

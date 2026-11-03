@@ -65,3 +65,14 @@ for (const id of ["", "日本語/ID", "x".repeat(65), "call_" + "x".repeat(150) 
     assert.deepEqual(results, calls);
   });
 }
+
+test("GPTの思考署名をAnthropicの署名として再送しない", () => {
+  const messages = history(["call_signed|ctc_signed"]);
+  const assistant = messages.find((message) => message.role === "assistant") as AssistantMessage;
+  assistant.content.unshift({ type: "thinking", thinking: "previous reasoning", thinkingSignature: "openai-signature" });
+  const before = structuredClone(messages);
+  const blocks = prepareFrames(messages).flatMap((frame) => frame.message.content) as Array<Record<string, unknown>>;
+  assert.equal(blocks.some((block) => block.type === "thinking" || block.type === "redacted_thinking"), false);
+  assert.equal(blocks.filter((block) => block.type === "tool_use").length, 1);
+  assert.deepEqual(messages, before);
+});
