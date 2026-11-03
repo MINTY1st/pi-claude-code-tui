@@ -10,7 +10,7 @@ import { envFlagEnabled } from "./env.ts";
 import type { AnthropicStreamEvent, NativeMessage, NativeResult } from "./native-types.ts";
 import { TuiSession } from "./pty-session.ts";
 import { TOOL_PREFIX } from "./transcript.ts";
-import { replaceTranscript } from "./tui-transcript.ts";
+import { initialContext, replaceTranscript } from "./tui-transcript.ts";
 import { TurnRelay } from "./turn-relay.ts";
 import { abortTuiRequests, trackTuiRequest } from "./tui-lifecycle.ts";
 
@@ -143,7 +143,8 @@ class TuiWorker {
     input.signal?.throwIfAborted();
     if (this.broken) throw new Error("Claude Code's interactive mode did not come back from /clear");
     const deliver = (event: AnthropicStreamEvent) => input.onEvent?.(event);
-    this.relay.beginTurn(deliver, (body) => replaceTranscript(body, input.frames, input.systemPrompt, input.nativeSystemInjections), input.betas);
+    const pinned = { userPrefix: input.initialUserPrefix, systemMessages: input.initialSystemMessages };
+    this.relay.beginTurn(deliver, (body) => replaceTranscript(body, input.frames, input.systemPrompt, input.nativeSystemInjections, pinned), input.betas);
     const abort = () => void this.close();
     input.signal?.addEventListener("abort", abort, { once: true });
     try {
@@ -171,12 +172,15 @@ class TuiWorker {
     const rateLimit = this.relay.rateLimit;
     if (rateLimit?.isUsingOverage === true && !usageCreditsAllowed({ ...process.env, ...input.env })) throw usageCreditsChargeError(rateLimit);
     const result: NativeResult = { type: "result", subtype: "success", is_error: false, num_turns: 1, usage };
+    const initial = this.relay.originalRequestBody ? initialContext(this.relay.originalRequestBody) : undefined;
     return {
       message,
       result,
       usage,
       exitCode: 0,
       relay: { upstreamRequests: Number(this.relay.used), blockedRequests: this.relay.denied, requestId: this.relay.requestId },
+      initialUserPrefix: input.initialUserPrefix ?? initial?.userPrefix,
+      initialSystemMessages: input.initialSystemMessages ?? initial?.systemMessages,
       rateLimit,
     };
   }
