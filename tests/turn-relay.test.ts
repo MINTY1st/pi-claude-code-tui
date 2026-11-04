@@ -144,3 +144,27 @@ test("上流のレスポンスヘッダーから rateLimit を作り、ターン
   }
 });
 
+
+test("上流から届くたびに lastActivityAt を進める（長いターンを時間切れにしないため）", async () => {
+  let lastChunkSentAt = 0;
+  const upstream = http.createServer(async (_request, response) => {
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    response.write(`data: ${JSON.stringify({ type: "ping" })}\n\n`);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    lastChunkSentAt = Date.now();
+    response.end(`data: ${JSON.stringify({ type: "message_stop" })}\n\n`);
+  });
+  const relay = new TurnRelay(`http://127.0.0.1:${await listen(upstream)}`, 5_000);
+  try {
+    const baseUrl = await relay.start();
+    relay.beginTurn(() => undefined);
+    const turnStartedAt = relay.lastActivityAt;
+    await (await fetch(`${baseUrl}/v1/messages`, { method: "POST", body: "{}" })).text();
+    await relay.settled();
+    assert.ok(turnStartedAt > 0, "beginTurn で記録する");
+    assert.ok(relay.lastActivityAt >= lastChunkSentAt, "最後のチャンクを受け取った時刻まで進む");
+  } finally {
+    await relay.close();
+    upstream.close();
+  }
+});

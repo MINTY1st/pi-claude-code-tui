@@ -149,7 +149,7 @@ class TuiWorker {
     input.signal?.addEventListener("abort", abort, { once: true });
     try {
       await this.session.submit(TRIGGER);
-      await this.session.waitIdle(input.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+      await this.session.waitIdle(input.timeoutMs ?? DEFAULT_TIMEOUT_MS, () => this.relay.lastActivityAt);
       await this.relay.settled();
       input.signal?.throwIfAborted();
       return this.output(input);

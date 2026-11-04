@@ -132,6 +132,8 @@ export class TurnRelay {
   private readonly sockets = new Set<Destroyable>();
   private readonly active = new Set<Promise<void>>();
   private cancelled = false;
+  /** 最後に TUI からの要求か上流のチャンクが届いた時刻。ターンの締め切りを「無応答の時間」で数えるために使う */
+  lastActivityAt = 0;
   private closed = false;
   private baseUrl?: string;
   private transformRequest?: (body: Buffer) => Buffer;
@@ -173,6 +175,7 @@ export class TurnRelay {
     if (this.closed) throw new Error("Claude Code turn relay is closed");
     if (this.active.size > 0) throw new Error("Claude Code turn relay still has an active request");
     this.capture = new AnthropicCapture(onEvent);
+    this.lastActivityAt = Date.now();
     this.used = false;
     this.denied = 0;
     this.status = undefined;
@@ -245,6 +248,7 @@ export class TurnRelay {
       response.writeHead(404).end();
       return;
     }
+    this.lastActivityAt = Date.now();
 
     if (this.cancelled || this.used) {
       this.denied += 1;
@@ -319,6 +323,7 @@ export class TurnRelay {
       response.writeHead(upstreamResponse.statusCode ?? 502, responseHeaders);
 
       for await (const rawChunk of upstreamResponse) {
+        this.lastActivityAt = Date.now();
         const chunk = Buffer.isBuffer(rawChunk) ? rawChunk : Buffer.from(rawChunk);
         if (this.status === 200) this.capture.feed(chunk);
         else if (this.errorBody.length < 65_536) {
