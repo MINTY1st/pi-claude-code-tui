@@ -81,6 +81,24 @@ test("submit で貼り付けて Enter を押し、waitIdle で入力待ちに戻
   });
 });
 
+test("waitIdle は上流から届くたびに締め切りを延ばし、timeoutMs より長いターンでも最後まで待つ", async () => {
+  await withSession({ env: { ...process.env, FAKE_SCREEN: "prompt", FAKE_TURN_MS: "1200" } }, async (session) => {
+    await session.ready();
+    await session.submit("long");
+    await assert.doesNotReject(session.waitIdle(500, () => Date.now()));
+  });
+});
+
+test("waitIdle は上流から何も届かないまま timeoutMs が過ぎたら、ターンが終わっていなくてもエラーにする", async () => {
+  await withSession({ env: { ...process.env, FAKE_SCREEN: "prompt", FAKE_TURN_MS: "3000" } }, async (session) => {
+    await session.ready();
+    await session.submit("stuck");
+    const startedAt = Date.now();
+    await assert.rejects(session.waitIdle(500, () => startedAt), /did not finish its turn within 500ms/);
+    assert.ok(Date.now() - startedAt < 2_000);
+  });
+});
+
 test("clear で /clear を送り、入力待ちに戻るまで待つ", async () => {
   await withSession({}, async (session, root) => {
     await session.ready();

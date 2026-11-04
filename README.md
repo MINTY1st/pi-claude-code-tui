@@ -58,6 +58,8 @@ pi -ne -e /absolute/path/to/pi-claude-code-tui/src/index.ts \
 
 Claude Code manages authentication. The extension does not read or copy credential files; authenticated request headers pass through a local relay.
 
+Pi's request timeout (`retry.provider.timeoutMs`, defaulting to `httpIdleTimeoutMs`, 300 seconds) is an idle timeout: a turn fails only when nothing arrives from upstream for that long. A turn that keeps streaming, such as a long review, can run past it. The screen is not used as a sign of progress, because Claude Code's spinner redraws it every second even when the turn is stuck.
+
 ## Limitations
 
 - Claude Code updates may break terminal-output detection. One live test timed out; retries passed, but the cause remains unknown.

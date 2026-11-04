@@ -35,7 +35,7 @@ test("tuiEnvironment は entrypoint を変える親の変数を消す（対話 T
 
 interface Upstream { url: string; bodies: string[]; close: () => void }
 
-interface Reply { content?: NativeContentBlock; status?: number; complete?: boolean }
+interface Reply { content?: NativeContentBlock; status?: number; complete?: boolean; eventDelayMs?: number }
 
 async function fakeUpstream(headers: Record<string, string> = {}, reply: Reply = {}): Promise<Upstream> {
   const bodies: string[] = [];
@@ -53,7 +53,15 @@ async function fakeUpstream(headers: Record<string, string> = {}, reply: Reply =
     for await (const chunk of request) body += chunk;
     bodies.push(body);
     response.writeHead(reply.status ?? 200, { "content-type": "text/event-stream", ...headers });
-    response.end(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""));
+    if (!reply.eventDelayMs) {
+      response.end(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""));
+      return;
+    }
+    for (const event of events) {
+      response.write(`data: ${JSON.stringify(event)}\n\n`);
+      await new Promise((resolve) => setTimeout(resolve, reply.eventDelayMs));
+    }
+    response.end();
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address() as { port: number };
@@ -261,4 +269,13 @@ test("使用量クレジットで払われた応答は billing エラーで止�
   await withFixture(overage, async (_upstream, input) => {
     await assert.rejects(runTuiRequest(input("hi")), /billing/i);
   });
+});
+
+test("上流が少しずつ返し続ける長いターンは、ターン全体が timeoutMs を超えても時間切れにしない（2026-11-04 に reviewer が 300 秒で切れた）", async () => {
+  await withFixture({}, async (_upstream, input) => {
+    const startedAt = Date.now();
+    const output = await runTuiRequest({ ...input("長い審査"), timeoutMs: 1_500 });
+    assert.deepEqual(output.message.content, [{ type: "text", text: "hello" }]);
+    assert.ok(Date.now() - startedAt > 1_500, "ターン全体は timeoutMs より長くかかっている");
+  }, { eventDelayMs: 400 });
 });
