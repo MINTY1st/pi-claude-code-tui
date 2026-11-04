@@ -3,8 +3,10 @@
 const ANSI = /\x1b\[[0-9;?<>=]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[P^_][^\x1b]*\x1b\\|\x1b./g;
 const TRUST_NO = /❯\s*No,\s*exit/g;
 const TRUST_YES = /❯\s*Yes,\s*I trust/g;
-// スピナーにも ✻ が使われるため、間に別の ✻ を挟まない最短の行だけを終了の行とみなす
-const TURN_DONE = /✻ [^❯✻\r\n]*? for (?:\d+h(?: \d+m)?(?: \d+s)?|\d+m(?: \d+s)?|\d+s)(?=\s|$)/g;
+// スピナーにも ✻ が使われるため、間に別の ✻ を挟まない最短の行だけを終了の行とみなす。
+// 終了時刻つき（「… for 5m 12s · done 12:12 AM」）の行は、差分描画で所要時間のセルが飛ばされて
+// 「for done 12:12 AM」としか残らないことがあるため、done の時刻でも終了の行とみなす
+const TURN_DONE = /✻ [^❯✻\r\n]*? for (?:(?:\d+h(?: \d+m)?(?: \d+s)?|\d+m(?: \d+s)?|\d+s)(?=\s|$)|[^❯✻\r\n]*?done \d{1,2}:\d{2})/g;
 const BUSY_MARK = "esc to interrupt";
 // 入力欄の ❯ の後ろは NBSP で描かれる（tmux は画面に描くとき普通の空白に変えるため、tmux 越しでは見えない）
 const PROMPT = /❯[ \u00a0]/;

@@ -73,6 +73,15 @@ test("反例: 分・時を含む終了時間でも、入力待ちがあれば終
   }
 });
 
+test("反例: 終了時刻つきの終了行で、所要時間が差分描画で抜けても、入力待ちがあれば終了とみなす", () => {
+  // 2026-11-05 に 300 秒のタイムアウトで止まったときの画面。変わらないセルはカーソル移動で飛ばされ、空白に置き換わる
+  const observed = "· Flu mmoxing… (12s · ↓ 601 tokens) ──── ❯\u00a0 ──── ⏸ manual mode on · esc to interrupt ✻ Crunched for done 12:12 AM ❯\u00a0? for shortcuts";
+  assert.equal(turnFinished(observed), true);
+  assert.equal(turnFinished("✻ Crunched for 5m 12s · done 12:12 AM\r\n❯\u00a0"), true);
+  assert.equal(turnFinished("✻ Crunched for done 12:12 AM"), false);
+  assert.equal(turnFinished("✻ Crunched for done 12:12 AM\r\n✻ Thinking… (esc to interrupt) ❯\u00a0"), false);
+});
+
 test("bracketedPaste は文字列を貼り付けの開始と終了で囲む", () => {
   assert.equal(bracketedPaste("continue"), "\x1b[200~continue\x1b[201~");
 });
