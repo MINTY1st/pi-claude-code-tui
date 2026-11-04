@@ -104,8 +104,12 @@ export class TuiSession {
     this.write("\r");
   }
 
-  async waitIdle(timeoutMs: number): Promise<void> {
-    await this.poll(timeoutMs, () => "Claude Code did not finish its turn", () => turnFinished(plainScreen(this.raw)));
+  /**
+   * 入力待ちに戻るまで待つ。lastActivityAt を渡すと、締め切りは「最後に上流から届いた時刻 + timeoutMs」になる。
+   * 画面はスピナーが毎秒描き直すので、止まっていても変化し続け、進捗の目安にならない
+   */
+  async waitIdle(timeoutMs: number, lastActivityAt?: () => number): Promise<void> {
+    await this.poll(timeoutMs, () => "Claude Code did not finish its turn", () => turnFinished(plainScreen(this.raw)), undefined, lastActivityAt);
   }
 
   /** ターンごとに TUI 側の履歴を空にし、ツールの往復をまたいで同じプロセスを使い回す */
@@ -160,9 +164,16 @@ export class TuiSession {
       : "Claude Code did not finish loading Pi's tool list";
   }
 
-  private async poll(timeoutMs: number, describe: () => string, done: (state: ScreenState) => boolean, signal?: AbortSignal): Promise<void> {
-    const deadline = Date.now() + timeoutMs;
+  private async poll(
+    timeoutMs: number,
+    describe: () => string,
+    done: (state: ScreenState) => boolean,
+    signal?: AbortSignal,
+    lastActivityAt?: () => number,
+  ): Promise<void> {
+    const startedAt = Date.now();
     for (;;) {
+      const deadline = Math.max(startedAt, lastActivityAt?.() ?? 0) + timeoutMs;
       signal?.throwIfAborted();
       if (this.failure) throw this.failure;
       if (this.exited) throw new Error(`Claude Code ended: ${this.lastScreen() || this.stderr.trim()}`);
