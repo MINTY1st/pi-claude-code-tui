@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // テスト用の偽 claude。対話 TUI が PTY に描くものを最小限まねる（2.1.316 の実機の描画から）
-// 環境変数: FAKE_SCREEN=trust|sign-in（起動時の画面）、FAKE_LOG（受け取った入力を書き出すファイル）
+// 環境変数: FAKE_SCREEN=trust|sign-in（起動時の画面）、FAKE_LOG（受け取った入力を書き出すファイル）、FAKE_TURN_MS（上流なしのターンが終わるまでの時間）
 import { appendFileSync, writeFileSync } from "node:fs";
 
 if (process.argv[2] === "auth") {
@@ -74,7 +74,7 @@ process.stdin.on("data", (chunk) => {
     pasted = "";
     process.stdout.write("✻ Thinking… (esc to interrupt)\r\n");
     const finish = (line) => process.stdout.write(`${line}✻ Worked for 0s\r\n${PROMPT}`);
-    if (command || !process.env.ANTHROPIC_BASE_URL) setTimeout(() => finish(command ? "" : "● ok\r\n"), 200);
+    if (command || !process.env.ANTHROPIC_BASE_URL) setTimeout(() => finish(command ? "" : "● ok\r\n"), command ? 200 : Number(process.env.FAKE_TURN_MS ?? 200));
     else void requestUpstream(words).then((status) => finish(status === 200 ? "● ok\r\n" : `● API Error: ${status}\r\n`), () => finish("● API Error\r\n"));
   }
 });
