@@ -102,7 +102,8 @@ export function buildExtraBody(
   if (options?.maxTokens !== undefined) body.max_tokens = options.maxTokens;
 
   if (options?.reasoning) {
-    if (supportsAdaptiveThinking(modelId)) body.thinking = { type: "adaptive" };
+    // Opus 4.7 以降の API は display 省略時に omitted となり思考本文を返さないため、Pi 本体と同じ summarized を明示する
+    if (supportsAdaptiveThinking(modelId)) body.thinking = { type: "adaptive", display: "summarized" };
     body.output_config = {
       effort: options.reasoning === "minimal" ? "low" : options.reasoning,
     };
