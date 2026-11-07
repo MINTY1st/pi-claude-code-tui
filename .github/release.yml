@@ -1,15 +1,5 @@
 changelog:
   categories:
-    - title: Bug fixes
+    - title: What's changed
       labels:
-        - fix
-    - title: Features
-      labels:
-        - feature
-    - title: Documentation
-      labels:
-        - docs
-    - title: CI and maintenance
-      labels:
-        - ci
-        - chore
+        - "*"

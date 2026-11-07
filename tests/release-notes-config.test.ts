@@ -17,26 +17,17 @@ function readCategories(source: string): Category[] {
     });
 }
 
-test("リリースノートはfix・feature・docs・ci/choreの順に4区分で分類する", () => {
-  assert.deepEqual(readCategories(config), [
-    { title: "Bug fixes", labels: ["fix"] },
-    { title: "Features", labels: ["feature"] },
-    { title: "Documentation", labels: ["docs"] },
-    { title: "CI and maintenance", labels: ["ci", "chore"] },
-  ]);
+// The repository does not label pull requests. GitHub drops pull requests that match no category,
+// so v0.2.0's generated notes were empty. A single catch-all category lists every merged pull request.
+test("release notes list every merged pull request in a single catch-all category", () => {
+  assert.deepEqual(readCategories(config), [{ title: "What's changed", labels: ['"*"'] }]);
 });
 
-test("各ラベルはただ1つの区分に属する", () => {
-  const labels = readCategories(config).flatMap((category) => category.labels);
-  assert.equal(new Set(labels).size, labels.length);
-  assert.equal(labels.length, 5);
-});
-
-test("依頼に無い除外設定とその他区分を持たない", () => {
+test("release notes exclude no pull requests", () => {
   assert.match(config, /^changelog:\n  categories:\n/);
-  assert.doesNotMatch(config, /exclude:|"\*"|'\*'/);
+  assert.doesNotMatch(config, /exclude:/);
 });
 
-test("readCategoriesは区分が無い文字列から空配列を返す", () => {
+test("readCategories returns an empty list when there are no categories", () => {
   assert.deepEqual(readCategories("changelog:\n  categories:\n"), []);
 });
