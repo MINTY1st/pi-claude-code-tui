@@ -187,8 +187,10 @@ const readyStatusCache = new Map<string, { command: string; expires: number }>()
 
 /**
  * Resolve a logged-in Claude Code executable. Successful checks are cached
- * briefly because a fresh worker is spawned after every tool call, and an
- * extra `claude auth status` process on each of those turns adds latency.
+ * briefly because every worker launch needs one: the -p path discards its
+ * worker after each tool call, and the TUI path launches a new one whenever no
+ * cached worker matches the request. An extra `claude auth status` process on
+ * each of those launches adds latency.
  */
 export async function readyClaudeCommand(
   envInput: Record<string, string | undefined>,
