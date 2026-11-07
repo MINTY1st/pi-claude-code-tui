@@ -1,0 +1,66 @@
+--- a/tests/turn-relay.test.ts
++++ b/tests/turn-relay.test.ts
+@@ -42,7 +42,6 @@
+   const observed: string[] = [];
+   const relay = new TurnRelay(
+     `http://127.0.0.1:${upstreamPort}`,
+-    5_000,
+     (event) => observed.push(event.type),
+     (body) => Buffer.from(JSON.stringify({ ...JSON.parse(body.toString("utf8")), rewritten: true })),
+     ["native-tools-test"],
+@@ -104,7 +103,7 @@
+     );
+   });
+   const upstreamPort = await listen(upstream);
+-  const relay = new TurnRelay(`http://127.0.0.1:${upstreamPort}`, 5_000);
++  const relay = new TurnRelay(`http://127.0.0.1:${upstreamPort}`);
+ 
+   try {
+     const baseUrl = await relay.start();
+@@ -130,7 +129,7 @@
+     });
+     response.end(`data: ${JSON.stringify({ type: "message_stop" })}\n\n`);
+   });
+-  const relay = new TurnRelay(`http://127.0.0.1:${await listen(upstream)}`, 5_000);
++  const relay = new TurnRelay(`http://127.0.0.1:${await listen(upstream)}`);
+   try {
+     const baseUrl = await relay.start();
+     await (await fetch(`${baseUrl}/v1/messages`, { method: "POST", body: "{}" })).text();
+@@ -154,7 +153,7 @@
+     lastChunkSentAt = Date.now();
+     response.end(`data: ${JSON.stringify({ type: "message_stop" })}\n\n`);
+   });
+-  const relay = new TurnRelay(`http://127.0.0.1:${await listen(upstream)}`, 5_000);
++  const relay = new TurnRelay(`http://127.0.0.1:${await listen(upstream)}`);
+   try {
+     const baseUrl = await relay.start();
+     relay.beginTurn(() => undefined);
+--- a/tests/pty-session.test.ts
++++ b/tests/pty-session.test.ts
+@@ -5,6 +5,7 @@
+ import { join } from "node:path";
+ import { fileURLToPath } from "node:url";
+ import test from "node:test";
++import { isRetryableAssistantError, type AssistantMessage } from "@earendil-works/pi-ai";
+ import { TuiSession, type TuiSessionOptions } from "../src/pty-session.ts";
+ 
+ const fakeClaude = fileURLToPath(new URL("./fixtures/fake-claude.mjs", import.meta.url));
+@@ -99,6 +100,18 @@
+   });
+ });
+ 
++test("waitIdle の無応答の打ち切りは timed out で始まり、Pi が再試行する文言にする", async () => {
++  await withSession({ env: { ...process.env, FAKE_SCREEN: "prompt", FAKE_TURN_MS: "3000" } }, async (session) => {
++    await session.ready();
++    await session.submit("stuck");
++    const startedAt = Date.now();
++    const error = await session.waitIdle(500, () => startedAt).then(() => assert.fail("waitIdle must time out"), (reason: unknown) => reason);
++    assert.ok(error instanceof Error);
++    assert.ok(error.message.startsWith("Claude Code timed out: it did not finish its turn within 500ms: "));
++    assert.equal(isRetryableAssistantError({ stopReason: "error", errorMessage: error.message } as AssistantMessage), true);
++  });
++});
++
+ test("clear で /clear を送り、入力待ちに戻るまで待つ", async () => {
+   await withSession({}, async (session, root) => {
+     await session.ready();
