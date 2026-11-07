@@ -59,3 +59,17 @@ jobs:
           packages=(./release/*.tgz)
           test "${#packages[@]}" -eq 1
           npm publish "${packages[0]}" --access public --provenance --ignore-scripts
+
+  release:
+    needs: publish
+    if: github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Create GitHub Release with generated notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
