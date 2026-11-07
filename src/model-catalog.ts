@@ -6,6 +6,9 @@ export const API_ID = "claude-code-stream-json";
 
 export type ClaudeCodeModel = Model<typeof API_ID>;
 
+/** The `thinking.type` value that turns thinking off for a model. */
+export type ThinkingOffShape = "disabled" | "between_tools";
+
 export interface DiscoveredClaudeModel {
   value: string;
   resolvedModel?: string;
@@ -25,6 +28,10 @@ const BUILTIN_ANTHROPIC_MODELS: Record<string, Model<"anthropic-messages">> = Ob
 const NATIVE_ROUTE_BY_ID = new Map<string, string>();
 const NATIVE_TOOL_CHANGES_BY_ID = new Map<string, boolean>();
 const ADAPTIVE_THINKING_BY_ID = new Map<string, boolean>();
+const THINKING_OFF_SHAPE_BY_ID = new Map<string, ThinkingOffShape>();
+// 2026-11-07 の実機確認で claude-sonnet-5-5 は {"type":"disabled"} を 400 で拒否し、between_tools を求めた。
+// Claude Code のカタログの supportsThinkingOff は全モデル false でこの違いを表さないため、実測した ID を持つ
+const BETWEEN_TOOLS_THINKING_OFF_IDS: ReadonlySet<string> = new Set(["claude-sonnet-5-5"]);
 
 const FALLBACK_DISCOVERY: DiscoveredClaudeModel[] = [
   {
@@ -89,6 +96,10 @@ function withoutContextSuffix(model: string): string {
   return model.replace(/\[1m\]$/u, "");
 }
 
+function thinkingOffShapeOf(resolvedId: string): ThinkingOffShape {
+  return BETWEEN_TOOLS_THINKING_OFF_IDS.has(resolvedId) ? "between_tools" : "disabled";
+}
+
 function canonicalModelId(info: DiscoveredClaudeModel): string {
   if (info.value === "default") return "default";
   return withoutContextSuffix(info.resolvedModel || ALIASES[withoutContextSuffix(info.value)] || info.value);
@@ -140,6 +151,7 @@ export function modelFromDiscovery(info: DiscoveredClaudeModel): ClaudeCodeModel
   NATIVE_ROUTE_BY_ID.set(id, info.value);
   NATIVE_TOOL_CHANGES_BY_ID.set(id, builtin?.compat?.supportsMidConvoToolChanges === true);
   ADAPTIVE_THINKING_BY_ID.set(id, info.supportsAdaptiveThinking === true);
+  THINKING_OFF_SHAPE_BY_ID.set(id, thinkingOffShapeOf(builtinId));
   return builtin ? fromBuiltin(info, id, builtin) : fallbackModel(info, id);
 }
 
@@ -162,6 +174,12 @@ function canonicalRoute(model: string): string {
 export function supportsAdaptiveThinking(model: string): boolean {
   const canonical = canonicalRoute(model);
   return ADAPTIVE_THINKING_BY_ID.get(model) ?? ADAPTIVE_THINKING_BY_ID.get(canonical) ?? true;
+}
+
+/** How to turn thinking off for this model. Unknown models keep "disabled". */
+export function thinkingOffShape(model: string): ThinkingOffShape {
+  const canonical = canonicalRoute(model);
+  return THINKING_OFF_SHAPE_BY_ID.get(model) ?? THINKING_OFF_SHAPE_BY_ID.get(canonical) ?? thinkingOffShapeOf(canonical);
 }
 
 /** Whether Anthropic currently accepts native mid-conversation tool blocks for this route. */
