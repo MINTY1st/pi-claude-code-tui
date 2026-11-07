@@ -1,0 +1,176 @@
+diff --git a/tests/package-metadata.test.ts b/tests/package-metadata.test.ts
+index 5b74fa1..52d270a 100644
+--- a/tests/package-metadata.test.ts
++++ b/tests/package-metadata.test.ts
+@@ -21,6 +21,14 @@ test("ロックファイルと動作条件がパッケージ定義に一致す
+   assert.deepEqual(lock.packages[""].engines, manifest.engines);
+ });
+ 
++test("型検査と単体テストには、実行環境の Pi と同じ 1.5.0 の pi-ai と pi-coding-agent を使う", () => {
++  for (const dependency of ["@earendil-works/pi-ai", "@earendil-works/pi-coding-agent"]) {
++    assert.equal(manifest.devDependencies[dependency], "^1.5.0", dependency);
++    assert.equal(lock.packages[""].devDependencies[dependency], "^1.5.0", dependency);
++    assert.equal(lock.packages[`node_modules/${dependency}`].version, "1.5.0", dependency);
++  }
++});
++
+ test("配布物に文書と派生元・magpie の MIT 表示を含める", () => {
+   assert.deepEqual(manifest.files, ["src", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"]);
+   assert.equal(manifest.license, "MIT");
+diff --git a/tests/tui-process.test.ts b/tests/tui-process.test.ts
+index 5bae281..fef7fef 100644
+--- a/tests/tui-process.test.ts
++++ b/tests/tui-process.test.ts
+@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
+ import { join } from "node:path";
+ import { fileURLToPath } from "node:url";
+ import test from "node:test";
+-import { closeTuiProcesses, runTuiRequest, tuiArgs, tuiEnvironment, tuiModeEnabled } from "../src/tui-process.ts";
++import { closeTuiProcesses, oldestIdleSession, runTuiRequest, tuiArgs, tuiEnvironment, tuiModeEnabled } from "../src/tui-process.ts";
+ import type { RunClaudeInput } from "../src/claude-cli.ts";
+ import type { NativeContentBlock } from "../src/native-types.ts";
+ import { TuiSession } from "../src/pty-session.ts";
+@@ -387,3 +387,143 @@ test("反例: 上流が 400 を返したターンのあとも、次のターン
+     assert.deepEqual(upstream.bodies.map((body) => (JSON.parse(body) as { output_config?: unknown }).output_config), [{ effort: "high" }, { effort: "low" }]);
+   }, { status: 400 });
+ });
++
++test("oldestIdleSession は使用中でない worker のうち、最後に使ったのが最も古いセッションを選ぶ", () => {
++  assert.equal(oldestIdleSession([["A", { busy: false, lastUsed: 20 }], ["B", { busy: false, lastUsed: 10 }], ["C", { busy: false, lastUsed: 30 }]]), "B");
++});
++
++test("oldestIdleSession は使用中の worker を、最も古くても選ばない", () => {
++  assert.equal(oldestIdleSession([["A", { busy: true, lastUsed: 10 }], ["B", { busy: false, lastUsed: 20 }]]), "B");
++});
++
++test("境界値: oldestIdleSession は最後に使った時刻が同じなら先に入ったセッションを選ぶ", () => {
++  assert.equal(oldestIdleSession([["A", { busy: false, lastUsed: 10 }], ["B", { busy: false, lastUsed: 10 }]]), "A");
++});
++
++test("境界値: oldestIdleSession は空か、すべて使用中なら undefined を返す", () => {
++  assert.equal(oldestIdleSession([]), undefined);
++  assert.equal(oldestIdleSession([["A", { busy: true, lastUsed: 10 }], ["B", { busy: true, lastUsed: 20 }]]), undefined);
++});
++
++const startedCount = async (log: () => Promise<string[]>) => (await log()).filter((text) => text === "started").length;
++
++test("キャッシュが2つで埋まっていたら、使われていない最も古いセッションの Claude Code を閉じて、3つ目のセッションを残す", async (context) => {
++  const sessions: TuiSession[] = [];
++  const start = TuiSession.start;
++  context.mock.method(TuiSession, "start", (options: Parameters<typeof TuiSession.start>[0]) => {
++    const session = start.call(TuiSession, options);
++    sessions.push(session);
++    return session;
++  });
++  await withFixture({}, async (_upstream, input, log) => {
++    const turn = (sessionId: string, text: string) => runTuiRequest({ ...input(text), sessionId });
++    await turn("A", "A1");
++    await turn("B", "B1");
++    await turn("C", "C1");
++    assert.deepEqual(sessions.map((session) => session.isAlive()), [false, true, true]);
++    await turn("C", "C2");
++    await turn("B", "B2");
++    assert.equal(await startedCount(log), 3, "B と C は使い回す");
++    await turn("A", "A2");
++    assert.equal(await startedCount(log), 4, "追い出した A は起動し直す");
++  });
++});
++
++test("最後に使った時刻で選ぶ: 先に起動しても直前に使ったセッションは残し、その次に古いセッションを追い出す", async () => {
++  await withFixture({}, async (_upstream, input, log) => {
++    const turn = (sessionId: string, text: string) => runTuiRequest({ ...input(text), sessionId });
++    await turn("A", "A1");
++    await turn("B", "B1");
++    await turn("A", "A2");
++    await turn("C", "C1");
++    assert.equal(await startedCount(log), 3);
++    await turn("A", "A3");
++    await turn("C", "C2");
++    assert.equal(await startedCount(log), 3, "A と C は使い回す");
++    await turn("B", "B2");
++    assert.equal(await startedCount(log), 4, "追い出した B は起動し直す");
++  });
++});
++
++/** 貼り付け（continue）を n 回目まで止める。/clear は止めない */
++function holdSubmits(context: { mock: { method: typeof import("node:test").mock.method } }, n: number) {
++  const entered = Promise.withResolvers<void>();
++  const gate = Promise.withResolvers<void>();
++  const original = TuiSession.prototype.submit;
++  let count = 0;
++  context.mock.method(TuiSession.prototype, "submit", async function (this: TuiSession, text: string) {
++    if (text === "continue" && ++count <= n) {
++      if (count === n) entered.resolve();
++      await gate.promise;
++    }
++    return original.call(this, text);
++  });
++  return { entered: entered.promise, release: () => gate.resolve() };
++}
++
++test("反例: 応答を待っているセッションの Claude Code は、最も古くても追い出さない", async (context) => {
++  await withFixture({}, async (_upstream, input, log) => {
++    const turn = (sessionId: string, text: string) => runTuiRequest({ ...input(text), sessionId });
++    await turn("A", "A1");
++    await turn("B", "B1");
++    const hold = holdSubmits(context, 1);
++    const running = turn("A", "A2");
++    await hold.entered;
++    await turn("C", "C1");
++    hold.release();
++    await running;
++    await turn("A", "A3");
++    await turn("C", "C2");
++    assert.equal(await startedCount(log), 3, "A と C は使い回す");
++    await turn("B", "B2");
++    assert.equal(await startedCount(log), 4, "追い出した B は起動し直す");
++  });
++});
++
++test("反例: キャッシュがすべて応答待ちなら何も追い出さず、3つ目のセッションは使い捨てで受ける", async (context) => {
++  await withFixture({}, async (_upstream, input, log) => {
++    const turn = (sessionId: string, text: string) => runTuiRequest({ ...input(text), sessionId });
++    await turn("A", "A1");
++    await turn("B", "B1");
++    const hold = holdSubmits(context, 2);
++    const running = [turn("A", "A2"), turn("B", "B2")];
++    await hold.entered;
++    await turn("C", "C1");
++    hold.release();
++    await Promise.all(running);
++    await turn("A", "A3");
++    await turn("B", "B3");
++    assert.equal(await startedCount(log), 3, "A と B は残っている");
++    await turn("C", "C2");
++    assert.equal(await startedCount(log), 4, "C は残していない");
++  });
++});
++
++test("反例: セッション ID の無い要求と、同じセッションへの並行要求は、使い捨てで受けて何も追い出さない", async () => {
++  await withFixture({}, async (_upstream, input, log) => {
++    const turn = (sessionId: string | undefined, text: string) => runTuiRequest({ ...input(text), sessionId });
++    await turn("A", "A1");
++    await turn("B", "B1");
++    await turn(undefined, "ID なし");
++    await Promise.all([turn("A", "A2"), turn("A", "A3")]);
++    assert.equal(await startedCount(log), 4);
++    await turn("A", "A4");
++    await turn("B", "B2");
++    assert.equal(await startedCount(log), 4, "A と B は残っている");
++  });
++});
++
++test("同時実行: 新しいセッション2つが並んで起動しても、空きを二重に数えず両方を残し、古い2つを追い出す", async () => {
++  await withFixture({}, async (_upstream, input, log) => {
++    const turn = (sessionId: string, text: string) => runTuiRequest({ ...input(text), sessionId });
++    await turn("A", "A1");
++    await turn("B", "B1");
++    await Promise.all([turn("C", "C1"), turn("D", "D1")]);
++    await turn("C", "C2");
++    await turn("D", "D2");
++    assert.equal(await startedCount(log), 4, "C と D は使い回す");
++    await turn("A", "A2");
++    await turn("B", "B2");
++    assert.equal(await startedCount(log), 6, "A と B は起動し直す");
++  });
++});
