@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net";
 import type { AnthropicStreamEvent, NativeContentBlock, NativeMessage } from "./native-types.ts";
 import type { RateLimitInfo } from "./billing.ts";
 import { rateLimitFromHeaders } from "./rate-limit-headers.ts";
+import { CaptureError, relayFailure, type RelayFailure, type RelayFailureKind } from "./relay-failure.ts";
 
 function copy<T>(value: T): T {
   return structuredClone(value);
@@ -23,12 +24,21 @@ export class AnthropicCapture {
 
   feed(chunk: Uint8Array): void {
     this.pending += this.decoder.decode(chunk, { stream: true });
-    this.consumeFrames();
+    this.consumeSafely();
   }
 
   finish(): void {
     this.pending += this.decoder.decode();
-    this.consumeFrames();
+    this.consumeSafely();
+  }
+
+  // relay が通信の失敗と区別できるように、解析と onEvent の例外だけを CaptureError で包む
+  private consumeSafely(): void {
+    try {
+      this.consumeFrames();
+    } catch (error) {
+      throw new CaptureError(error);
+    }
   }
 
   private consumeFrames(): void {
@@ -121,7 +131,7 @@ export class TurnRelay {
   requestId?: string;
   /** Plan-limit status read from the upstream response headers. */
   rateLimit?: RateLimitInfo;
-  failure?: string;
+  failure?: RelayFailure;
   errorBody = Buffer.alloc(0);
   originalRequestBody?: Buffer;
   requestBody?: Buffer;
@@ -141,7 +151,6 @@ export class TurnRelay {
 
   constructor(
     upstream = "https://api.anthropic.com",
-    private readonly timeoutMs = 180_000,
     onEvent?: (event: AnthropicStreamEvent) => void,
     transformRequest?: (body: Buffer) => Buffer,
     requestBetas: string[] = [],
@@ -266,6 +275,7 @@ export class TurnRelay {
     this.sockets.add(response);
 
     let upstreamRequest: http.ClientRequest | undefined;
+    let stage: RelayFailureKind = "request";
     try {
       let body = await this.readBody(request);
       this.originalRequestBody = Buffer.from(body);
@@ -293,6 +303,7 @@ export class TurnRelay {
 
       const pathPrefix = this.upstream.pathname.replace(/\/$/u, "");
       const transport = this.upstream.protocol === "https:" ? https : http;
+      stage = "connect";
       upstreamRequest = transport.request({
         protocol: this.upstream.protocol,
         hostname: this.upstream.hostname,
@@ -300,7 +311,6 @@ export class TurnRelay {
         method: "POST",
         path: `${pathPrefix}/v1/messages${requestUrl.search}`,
         headers,
-        timeout: this.timeoutMs,
       });
       this.sockets.add(upstreamRequest);
 
@@ -309,6 +319,7 @@ export class TurnRelay {
         upstreamRequest!.once("error", reject);
         upstreamRequest!.end(body);
       });
+      stage = "disconnect";
       this.sockets.add(upstreamResponse);
       this.status = upstreamResponse.statusCode;
       this.requestId =
@@ -334,7 +345,7 @@ export class TurnRelay {
       if (this.status === 200) this.capture.finish();
       response.end();
     } catch (error) {
-      this.failure = error instanceof Error ? error.name : "UnknownError";
+      this.failure = relayFailure(error instanceof CaptureError ? "capture" : stage, error);
       if (!response.headersSent) response.writeHead(this.cancelled ? 499 : 502).end();
       else response.destroy();
     } finally {

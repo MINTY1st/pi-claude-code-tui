@@ -60,6 +60,8 @@ Claude Code manages authentication. The extension does not read or copy credenti
 
 Pi's request timeout (`retry.provider.timeoutMs`, defaulting to `httpIdleTimeoutMs`, 300 seconds) is an idle timeout: a turn fails only when nothing arrives from upstream for that long. A turn that keeps streaming, such as a long review, can run past it. The screen is not used as a sign of progress, because Claude Code's spinner redraws it every second even when the turn is stuck.
 
+Connection failures, dropped connections and idle timeouts are reported with wording that Pi's automatic retry recognizes (`connection error`, `connection lost`, `timed out`), so Pi retries the turn even though Claude Code's own retries stay disabled (`CLAUDE_CODE_MAX_RETRIES=0`). 4xx responses, billing errors, tools outside Pi's inventory and malformed streams are reported without that wording and are not retried.
+
 ## Limitations
 
 - Claude Code updates may break terminal-output detection. One live test timed out; retries passed, but the cause remains unknown.
