@@ -103,7 +103,7 @@ An owner-pushed `vX.Y.Z` tag triggers [the publishing workflow](.github/workflow
 The tagged commit must be in `main`, and the tag, manifest, and lockfile versions must match.
 Tests and type checks run without publishing credentials; a separate job publishes the verified tarball.
 After the package is published, a third job creates the GitHub Release for the tag with generated notes; only that job has `contents: write`.
-The notes group pull requests by the labels `fix`, `feature`, `docs`, and `ci`/`chore` as defined in [.github/release.yml](.github/release.yml).
+The notes list every merged pull request by title in a single section, as defined in [.github/release.yml](.github/release.yml); no labels are needed.
 
 One-time npm setup: in this package's **Settings → Trusted Publisher**, select GitHub Actions,
 set the owner and repository to this repository, and enter `publish.yml` as the workflow filename.
