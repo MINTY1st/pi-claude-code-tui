@@ -82,11 +82,15 @@ npm pack --dry-run
 
 Tests use a fake Claude Code and local upstream, not the real model service. PTY tests start real child processes and require `python3`.
 
+[The CI workflow](.github/workflows/ci.yml) runs `npm ci --ignore-scripts`, `npm test`, and `npm run check` on Node 24.22.2 for every pull request and every push to `main`.
+
 ## Publishing
 
 An owner-pushed `vX.Y.Z` tag triggers [the publishing workflow](.github/workflows/publish.yml).
 The tagged commit must be in `main`, and the tag, manifest, and lockfile versions must match.
 Tests and type checks run without publishing credentials; a separate job publishes the verified tarball.
+After the package is published, a third job creates the GitHub Release for the tag with generated notes; only that job has `contents: write`.
+The notes group pull requests by the labels `fix`, `feature`, `docs`, and `ci`/`chore` as defined in [.github/release.yml](.github/release.yml).
 
 One-time npm setup: in this package's **Settings → Trusted Publisher**, select GitHub Actions,
 set the owner and repository to this repository, and enter `publish.yml` as the workflow filename.
