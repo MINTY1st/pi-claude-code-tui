@@ -37,6 +37,12 @@ export function usageCreditsChargeError(info: RateLimitInfo): Error {
   );
 }
 
+// 環境変数は呼び出し側で process.env と Pi の env を混ぜて渡す。この関数は process.env を読まない
+/** 使用量クレジットで払われた応答なら、許可の環境変数が無い限り投げる */
+export function guardUsageCredits(rateLimit: RateLimitInfo | undefined, environment: Record<string, string | undefined>): void {
+  if (rateLimit?.isUsingOverage === true && !usageCreditsAllowed(environment)) throw usageCreditsChargeError(rateLimit);
+}
+
 /** Rewrite an Anthropic usage-credit rejection into an actionable, non-retryable error. */
 export function describeUsageCreditsRejection(message: string): string | undefined {
   if (!USAGE_CREDITS_REJECTION.test(message)) return undefined;
