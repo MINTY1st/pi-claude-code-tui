@@ -21,6 +21,14 @@ test("ロックファイルと動作条件がパッケージ定義に一致す�
   assert.deepEqual(lock.packages[""].engines, manifest.engines);
 });
 
+test("型検査と単体テストには、実行環境の Pi と同じ 1.5.0 の pi-ai と pi-coding-agent を使う", () => {
+  for (const dependency of ["@earendil-works/pi-ai", "@earendil-works/pi-coding-agent"]) {
+    assert.equal(manifest.devDependencies[dependency], "^1.5.0", dependency);
+    assert.equal(lock.packages[""].devDependencies[dependency], "^1.5.0", dependency);
+    assert.equal(lock.packages[`node_modules/${dependency}`].version, "1.5.0", dependency);
+  }
+});
+
 test("配布物に文書と派生元・magpie の MIT 表示を含める", () => {
   assert.deepEqual(manifest.files, ["src", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"]);
   assert.equal(manifest.license, "MIT");
