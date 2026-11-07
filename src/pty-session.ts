@@ -109,7 +109,7 @@ export class TuiSession {
    * 画面はスピナーが毎秒描き直すので、止まっていても変化し続け、進捗の目安にならない
    */
   async waitIdle(timeoutMs: number, lastActivityAt?: () => number): Promise<void> {
-    await this.poll(timeoutMs, () => "Claude Code did not finish its turn", () => turnFinished(plainScreen(this.raw)), undefined, lastActivityAt);
+    await this.poll(timeoutMs, () => "Claude Code timed out: it did not finish its turn", () => turnFinished(plainScreen(this.raw)), undefined, lastActivityAt);
   }
 
   /** ターンごとに TUI 側の履歴を空にし、ツールの往復をまたいで同じプロセスを使い回す */

@@ -42,7 +42,6 @@ test("relays one upstream Messages request and captures its SSE response", async
   const observed: string[] = [];
   const relay = new TurnRelay(
     `http://127.0.0.1:${upstreamPort}`,
-    5_000,
     (event) => observed.push(event.type),
     (body) => Buffer.from(JSON.stringify({ ...JSON.parse(body.toString("utf8")), rewritten: true })),
     ["native-tools-test"],
@@ -104,7 +103,7 @@ test("surfaces an error event from an otherwise successful SSE stream", async ()
     );
   });
   const upstreamPort = await listen(upstream);
-  const relay = new TurnRelay(`http://127.0.0.1:${upstreamPort}`, 5_000);
+  const relay = new TurnRelay(`http://127.0.0.1:${upstreamPort}`);
 
   try {
     const baseUrl = await relay.start();
@@ -130,7 +129,7 @@ test("上流のレスポンスヘッダーから rateLimit を作り、ターン
     });
     response.end(`data: ${JSON.stringify({ type: "message_stop" })}\n\n`);
   });
-  const relay = new TurnRelay(`http://127.0.0.1:${await listen(upstream)}`, 5_000);
+  const relay = new TurnRelay(`http://127.0.0.1:${await listen(upstream)}`);
   try {
     const baseUrl = await relay.start();
     await (await fetch(`${baseUrl}/v1/messages`, { method: "POST", body: "{}" })).text();
@@ -154,7 +153,7 @@ test("上流から届くたびに lastActivityAt を進める（長いターン�
     lastChunkSentAt = Date.now();
     response.end(`data: ${JSON.stringify({ type: "message_stop" })}\n\n`);
   });
-  const relay = new TurnRelay(`http://127.0.0.1:${await listen(upstream)}`, 5_000);
+  const relay = new TurnRelay(`http://127.0.0.1:${await listen(upstream)}`);
   try {
     const baseUrl = await relay.start();
     relay.beginTurn(() => undefined);
