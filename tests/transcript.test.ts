@@ -210,7 +210,7 @@ test("normalizes tool schemas and builds native generation fields", () => {
   );
   assert.deepEqual(buildExtraBody("claude-sonnet-5", prepared.nativeTools, { reasoning: "minimal" }), {
     tools: prepared.nativeTools,
-    thinking: { type: "adaptive" },
+    thinking: { type: "adaptive", display: "summarized" },
     output_config: { effort: "low" },
   });
   assert.deepEqual(buildExtraBody("claude-haiku-4-5-20251001", [], {}), {
@@ -218,4 +218,59 @@ test("normalizes tool schemas and builds native generation fields", () => {
     thinking: { type: "disabled" },
     context_management: { edits: [] },
   });
+});
+
+test("buildExtraBody summarizes adaptive thinking for every reasoning level and route", () => {
+  assert.deepEqual(buildExtraBody("claude-opus-5-5", [], { reasoning: "high" }), {
+    tools: [],
+    thinking: { type: "adaptive", display: "summarized" },
+    output_config: { effort: "high" },
+  });
+  for (const reasoning of ["low", "medium", "xhigh"] as const) {
+    const body = buildExtraBody("claude-sonnet-5", [], { reasoning });
+    assert.deepEqual(body.thinking, { type: "adaptive", display: "summarized" });
+    assert.deepEqual(body.output_config, { effort: reasoning });
+  }
+  for (const modelId of ["claude-future-1", "claude-opus-5-5[1m]"]) {
+    assert.deepEqual(buildExtraBody(modelId, [], { reasoning: "minimal" }).thinking, {
+      type: "adaptive",
+      display: "summarized",
+    });
+  }
+});
+
+test("buildExtraBody keeps thinking disabled without display when reasoning is absent", () => {
+  const expected = {
+    tools: [],
+    thinking: { type: "disabled" },
+    context_management: { edits: [] },
+  };
+  assert.deepEqual(buildExtraBody("claude-opus-5-5", [], {}), expected);
+  assert.deepEqual(buildExtraBody("claude-opus-5-5", []), expected);
+});
+
+test("buildExtraBody omits thinking for models without adaptive thinking when reasoning is set", () => {
+  const body = buildExtraBody("claude-haiku-4-5-20251001", [], { reasoning: "low" });
+  assert.equal("thinking" in body, false);
+  assert.deepEqual(body.output_config, { effort: "low" });
+});
+
+test("buildExtraBody keeps max_tokens alongside summarized thinking", () => {
+  const body = buildExtraBody("claude-sonnet-5", [], { reasoning: "high", maxTokens: 1024 });
+  assert.equal(body.max_tokens, 1024);
+  assert.deepEqual(body.thinking, { type: "adaptive", display: "summarized" });
+});
+
+test("buildExtraBody leaves inputs untouched and returns independent bodies", () => {
+  const nativeTools = [{ name: "probe", input_schema: { type: "object" } }];
+  const options = { reasoning: "low" as const, maxTokens: 512 };
+  const clonedTools = structuredClone(nativeTools);
+  const clonedOptions = structuredClone(options);
+  const first = buildExtraBody("claude-sonnet-5", nativeTools, options);
+  const second = buildExtraBody("claude-sonnet-5", nativeTools, options);
+  assert.deepEqual(nativeTools, clonedTools);
+  assert.deepEqual(options, clonedOptions);
+  assert.notEqual(first.thinking, second.thinking);
+  (first.thinking as Record<string, unknown>).display = "tampered";
+  assert.deepEqual(second.thinking, { type: "adaptive", display: "summarized" });
 });
