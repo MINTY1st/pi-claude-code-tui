@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { isRetryableAssistantError, type AssistantMessage } from "@earendil-works/pi-ai";
-import { TuiSession, type TuiSessionOptions } from "../src/pty-session.ts";
+import { type FallbackHold, promptFallbackReached, TuiSession, type TuiSessionOptions } from "../src/pty-session.ts";
 
 const fakeClaude = fileURLToPath(new URL("./fixtures/fake-claude.mjs", import.meta.url));
 
@@ -139,5 +139,85 @@ test("close で子プロセスを終わらせる", async () => {
     await session.ready();
     await session.close();
     assert.equal(session.isAlive(), false);
+  });
+});
+
+const withoutTurnLine = (extra: Record<string, string> = {}): Partial<TuiSessionOptions> => ({
+  env: { ...process.env, FAKE_SCREEN: "prompt", FAKE_TURN_LINE: "0", ...extra },
+  promptFallbackMs: 300,
+});
+
+test("promptFallbackReached は条件が holdMs 続いたときだけ真になり、途切れたら数え直す", () => {
+  const hold: FallbackHold = {};
+  assert.equal(promptFallbackReached(hold, true, 1_000, 300), false);
+  assert.equal(promptFallbackReached(hold, true, 1_299, 300), false);
+  assert.equal(promptFallbackReached(hold, true, 1_300, 300), true);
+  assert.equal(promptFallbackReached(hold, false, 1_301, 300), false);
+  assert.equal(hold.since, undefined);
+  assert.equal(promptFallbackReached(hold, true, 1_302, 300), false);
+  assert.equal(promptFallbackReached(hold, true, 1_602, 300), true);
+});
+
+test("境界値: holdMs が 0 なら、条件が成り立った最初の確認で真になる", () => {
+  assert.equal(promptFallbackReached({}, true, 5, 0), true);
+  assert.equal(promptFallbackReached({}, false, 5, 0), false);
+});
+
+test("反例: 応答中（スピナーの描き直し中）の画面は、受信が終わっていても終了とみなさない", async () => {
+  await withSession(withoutTurnLine({ FAKE_SPIN_MS: "50", FAKE_TURN_MS: "1500" }), async (session) => {
+    await session.ready();
+    await session.submit("busy");
+    const startedAt = Date.now();
+    await session.waitIdle(5_000, undefined, () => true);
+    assert.ok(Date.now() - startedAt >= 1_500, "fake が入力欄を描き直す前に終えてはならない");
+  });
+});
+
+test("反例: 応答中の表示の後ろに入力欄が描かれていても、受信が終わるまでは終了とみなさない", async () => {
+  await withSession(withoutTurnLine({ FAKE_PROMPT_WHILE_BUSY: "1", FAKE_SPIN_MS: "50", FAKE_TURN_MS: "3000" }), async (session) => {
+    await session.ready();
+    await session.submit("busy");
+    const startedAt = Date.now();
+    await session.waitIdle(5_000, undefined, () => Date.now() - startedAt >= 1_000);
+    assert.ok(Date.now() - startedAt >= 1_300, "受信完了から promptFallbackMs 経つ前に終えてはならない");
+  });
+});
+
+test("反例: 終了行が無く受信も終わっていなければ、入力欄があっても timeoutMs で打ち切る", async () => {
+  await withSession(withoutTurnLine({ FAKE_TURN_MS: "200" }), async (session) => {
+    await session.ready();
+    await session.submit("stalled");
+    const startedAt = Date.now();
+    await assert.rejects(session.waitIdle(800, () => startedAt, () => false), /timed out: it did not finish its turn within 800ms/);
+  });
+});
+
+test("反例: responseComplete を渡さない呼び出しは、終了行が無ければ従来どおり打ち切る", async () => {
+  await withSession(withoutTurnLine({ FAKE_TURN_MS: "200" }), async (session) => {
+    await session.ready();
+    await session.submit("legacy");
+    const startedAt = Date.now();
+    await assert.rejects(session.waitIdle(800, () => startedAt), /timed out/);
+  });
+});
+
+test("終了行を取りこぼしても、受信完了と入力欄が promptFallbackMs 続けばターンを終える", async () => {
+  await withSession(withoutTurnLine({ FAKE_TURN_MS: "200" }), async (session) => {
+    await session.ready();
+    await session.submit("done");
+    const startedAt = Date.now();
+    await session.waitIdle(5_000, undefined, () => true);
+    const elapsed = Date.now() - startedAt;
+    assert.ok(elapsed >= 300 && elapsed < 3_000, String(elapsed));
+  });
+});
+
+test("終了行がある通常のターンは、補助判定を待たずに終える", async () => {
+  await withSession({ promptFallbackMs: 2_000 }, async (session) => {
+    await session.ready();
+    await session.submit("normal");
+    const startedAt = Date.now();
+    await session.waitIdle(5_000, undefined, () => false);
+    assert.ok(Date.now() - startedAt < 1_500);
   });
 });
