@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { isRetryableAssistantError, type AssistantMessage } from "@earendil-works/pi-ai";
 import { TuiSession, type TuiSessionOptions } from "../src/pty-session.ts";
 
 const fakeClaude = fileURLToPath(new URL("./fixtures/fake-claude.mjs", import.meta.url));
@@ -96,6 +97,18 @@ test("waitIdle は上流から何も届かないまま timeoutMs が過ぎたら
     const startedAt = Date.now();
     await assert.rejects(session.waitIdle(500, () => startedAt), /did not finish its turn within 500ms/);
     assert.ok(Date.now() - startedAt < 2_000);
+  });
+});
+
+test("waitIdle の無応答の打ち切りは timed out で始まり、Pi が再試行する文言にする", async () => {
+  await withSession({ env: { ...process.env, FAKE_SCREEN: "prompt", FAKE_TURN_MS: "3000" } }, async (session) => {
+    await session.ready();
+    await session.submit("stuck");
+    const startedAt = Date.now();
+    const error = await session.waitIdle(500, () => startedAt).then(() => assert.fail("waitIdle must time out"), (reason: unknown) => reason);
+    assert.ok(error instanceof Error);
+    assert.ok(error.message.startsWith("Claude Code timed out: it did not finish its turn within 500ms: "));
+    assert.equal(isRetryableAssistantError({ stopReason: "error", errorMessage: error.message } as AssistantMessage), true);
   });
 });
 
