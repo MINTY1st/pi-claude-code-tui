@@ -3,7 +3,9 @@
 // 環境変数: FAKE_SCREEN=trust|sign-in（起動時の画面）、FAKE_LOG（受け取った入力を書き出すファイル）、FAKE_TURN_MS（上流なしのターンが終わるまでの時間）
 // FAKE_TURN_LINE=0（貼り付けたターンの終わりに終了行を描かない）、FAKE_SPIN_MS（応答中にスピナーの記号を描く間隔）、
 // FAKE_PROMPT_WHILE_BUSY=1（応答中の表示の後ろに入力欄を描く。差分描画でヒント行が描き直されない画面をまねる）
-import { appendFileSync, writeFileSync } from "node:fs";
+// FAKE_SETTINGS_LOG（起動時に --settings の CLAUDE_CODE_EXTRA_BODY を1行ずつ書き出すファイル）、
+// FAKE_DROP_BODY_KEYS（CLAUDE_CODE_EXTRA_BODY を混ぜた後に本文から消すキー。カンマ区切り）
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 
 if (process.argv[2] === "auth") {
   process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", subscriptionType: "pro" }));
@@ -17,6 +19,11 @@ if (mcpIndex > 0) {
   if (marker) writeFileSync(marker, "");
 }
 appendFileSync(process.env.FAKE_LOG ?? "/dev/null", JSON.stringify("started") + "\n");
+// 本物は起動時に読んだ CLAUDE_CODE_EXTRA_BODY を本文の最上位へ浅く混ぜる（2.1.317 の静的読解）
+const settingsIndex = process.argv.indexOf("--settings");
+const extraBodyText = settingsIndex > 0 ? JSON.parse(readFileSync(process.argv[settingsIndex + 1], "utf8")).env?.CLAUDE_CODE_EXTRA_BODY : undefined;
+const extraBody = extraBodyText ? JSON.parse(extraBodyText) : {};
+if (process.env.FAKE_SETTINGS_LOG) appendFileSync(process.env.FAKE_SETTINGS_LOG, JSON.stringify(extraBodyText ?? null) + "\n");
 
 // /clear 直後の本物が送る本文の形（2.1.316 の実測）。中身は relay が Pi の会話に差し替える
 async function requestUpstream(pasted) {
@@ -28,7 +35,9 @@ async function requestUpstream(pasted) {
       { role: "system", content: [{ type: "text", text: "# Environment" }] },
     ],
     stream: true,
+    ...extraBody,
   };
+  for (const key of (process.env.FAKE_DROP_BODY_KEYS ?? "").split(",").filter(Boolean)) delete body[key];
   const response = await fetch(`${process.env.ANTHROPIC_BASE_URL}/v1/messages`, { method: "POST", body: JSON.stringify(body) });
   await response.text();
   for (let index = 0; index < Number(process.env.FAKE_RECOVERY_REQUESTS ?? 0); index++) {
