@@ -1,6 +1,6 @@
 {
   "name": "@minty1st/pi-claude-code-tui",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "description": "Experimental Pi provider that runs Claude Code's interactive TUI in a PTY, with Pi-managed tools and conversation history.",
   "type": "module",
   "license": "MIT",
