@@ -1,0 +1,260 @@
+diff --git a/tests/tui-screen.test.ts b/tests/tui-screen.test.ts
+index 4105621..c72f611 100644
+--- a/tests/tui-screen.test.ts
++++ b/tests/tui-screen.test.ts
+@@ -1,6 +1,6 @@
+ import assert from "node:assert/strict";
+ import test from "node:test";
+-import { bracketedPaste, createTerminalResponder, plainScreen, screenState, terminalReplies, turnFinished } from "../src/tui-screen.ts";
++import { bracketedPaste, createTerminalResponder, plainScreen, promptAfterBusy, screenState, terminalReplies, turnFinished } from "../src/tui-screen.ts";
+ 
+ test("plainScreen は CSI・OSC のエスケープを空白に置き換える", () => {
+   assert.equal(plainScreen("\x1b[2J\x1b[1;1H❯ \x1b]0;title\x07ok"), "  ❯  ok");
+@@ -85,3 +85,39 @@ test("反例: 終了時刻つきの終了行で、所要時間が差分描画で
+ test("bracketedPaste は文字列を貼り付けの開始と終了で囲む", () => {
+   assert.equal(bracketedPaste("continue"), "\x1b[200~continue\x1b[201~");
+ });
++
++// tests/tui-screen.test.ts の末尾に追加する部分。先頭の import に promptAfterBusy を足す:
++// import { bracketedPaste, createTerminalResponder, plainScreen, promptAfterBusy, screenState, terminalReplies, turnFinished } from "../src/tui-screen.ts";
++
++// 2026-11-05〜06 にタイムアウトした画面（Pi のセッション記録の errorMessage）から終了行だけを除いたもの。
++// 応答中の欄の下には「esc to interrupt」が、終わったあとは「? for shortcuts」が描かれる
++const BUSY_FRAME = "✶ Frosting… (14s · ↓ 799 tokens) ──── ❯ ──── ⏸ manual mode on · esc to interrupt";
++const IDLE_REDRAW = "❯\u00a0? for shortcuts";
++
++test("promptAfterBusy は、応答中の表示より後ろに入力欄が描き直されたときだけ真になる", () => {
++  assert.equal(promptAfterBusy(`${BUSY_FRAME} ${IDLE_REDRAW}`), true);
++  assert.equal(promptAfterBusy("● ok ──── ❯\u00a0 ────"), true);
++});
++
++test("反例: 応答中の画面（入力欄の後ろに esc to interrupt がある）では偽になる", () => {
++  assert.equal(promptAfterBusy(BUSY_FRAME), false);
++  assert.equal(promptAfterBusy("❯\u00a0continue ✻ Thinking… (esc to interrupt)"), false);
++  // スピナーの描き直しは記号と経過秒だけで、入力欄もヒント行も描き直さない
++  assert.equal(promptAfterBusy(`${BUSY_FRAME} ✶ e * ✢ n 7 ● · K ✢ * ✶ ✻ 8`), false);
++});
++
++test("反例: 入力欄が一度も描かれていない画面では偽になる", () => {
++  assert.equal(promptAfterBusy(""), false);
++  assert.equal(promptAfterBusy("● ok ✻ Thinking…"), false);
++  assert.equal(promptAfterBusy("❯continue"), false);
++});
++
++test("境界値: esc to interrupt の直後の入力欄は真、直前の入力欄は偽になる", () => {
++  assert.equal(promptAfterBusy("esc to interrupt❯\u00a0"), true);
++  assert.equal(promptAfterBusy("❯\u00a0esc to interrupt"), false);
++});
++
++test("反例: 終了行がある画面の判定（turnFinished）は promptAfterBusy の追加で変わらない", () => {
++  assert.equal(turnFinished(`${BUSY_FRAME} ✻ Brewed for done 1:27 AM ${IDLE_REDRAW}`), true);
++  assert.equal(turnFinished(`${BUSY_FRAME} ${IDLE_REDRAW}`), false);
++});
+diff --git a/tests/pty-session.test.ts b/tests/pty-session.test.ts
+index 2c3229d..5e2a362 100644
+--- a/tests/pty-session.test.ts
++++ b/tests/pty-session.test.ts
+@@ -6,7 +6,7 @@ import { join } from "node:path";
+ import { fileURLToPath } from "node:url";
+ import test from "node:test";
+ import { isRetryableAssistantError, type AssistantMessage } from "@earendil-works/pi-ai";
+-import { TuiSession, type TuiSessionOptions } from "../src/pty-session.ts";
++import { type FallbackHold, promptFallbackReached, TuiSession, type TuiSessionOptions } from "../src/pty-session.ts";
+ 
+ const fakeClaude = fileURLToPath(new URL("./fixtures/fake-claude.mjs", import.meta.url));
+ 
+@@ -141,3 +141,83 @@ test("close で子プロセスを終わらせる", async () => {
+     assert.equal(session.isAlive(), false);
+   });
+ });
++
++const withoutTurnLine = (extra: Record<string, string> = {}): Partial<TuiSessionOptions> => ({
++  env: { ...process.env, FAKE_SCREEN: "prompt", FAKE_TURN_LINE: "0", ...extra },
++  promptFallbackMs: 300,
++});
++
++test("promptFallbackReached は条件が holdMs 続いたときだけ真になり、途切れたら数え直す", () => {
++  const hold: FallbackHold = {};
++  assert.equal(promptFallbackReached(hold, true, 1_000, 300), false);
++  assert.equal(promptFallbackReached(hold, true, 1_299, 300), false);
++  assert.equal(promptFallbackReached(hold, true, 1_300, 300), true);
++  assert.equal(promptFallbackReached(hold, false, 1_301, 300), false);
++  assert.equal(hold.since, undefined);
++  assert.equal(promptFallbackReached(hold, true, 1_302, 300), false);
++  assert.equal(promptFallbackReached(hold, true, 1_602, 300), true);
++});
++
++test("境界値: holdMs が 0 なら、条件が成り立った最初の確認で真になる", () => {
++  assert.equal(promptFallbackReached({}, true, 5, 0), true);
++  assert.equal(promptFallbackReached({}, false, 5, 0), false);
++});
++
++test("反例: 応答中（スピナーの描き直し中）の画面は、受信が終わっていても終了とみなさない", async () => {
++  await withSession(withoutTurnLine({ FAKE_SPIN_MS: "50", FAKE_TURN_MS: "1500" }), async (session) => {
++    await session.ready();
++    await session.submit("busy");
++    const startedAt = Date.now();
++    await session.waitIdle(5_000, undefined, () => true);
++    assert.ok(Date.now() - startedAt >= 1_500, "fake が入力欄を描き直す前に終えてはならない");
++  });
++});
++
++test("反例: 応答中の表示の後ろに入力欄が描かれていても、受信が終わるまでは終了とみなさない", async () => {
++  await withSession(withoutTurnLine({ FAKE_PROMPT_WHILE_BUSY: "1", FAKE_SPIN_MS: "50", FAKE_TURN_MS: "3000" }), async (session) => {
++    await session.ready();
++    await session.submit("busy");
++    const startedAt = Date.now();
++    await session.waitIdle(5_000, undefined, () => Date.now() - startedAt >= 1_000);
++    assert.ok(Date.now() - startedAt >= 1_300, "受信完了から promptFallbackMs 経つ前に終えてはならない");
++  });
++});
++
++test("反例: 終了行が無く受信も終わっていなければ、入力欄があっても timeoutMs で打ち切る", async () => {
++  await withSession(withoutTurnLine({ FAKE_TURN_MS: "200" }), async (session) => {
++    await session.ready();
++    await session.submit("stalled");
++    const startedAt = Date.now();
++    await assert.rejects(session.waitIdle(800, () => startedAt, () => false), /timed out: it did not finish its turn within 800ms/);
++  });
++});
++
++test("反例: responseComplete を渡さない呼び出しは、終了行が無ければ従来どおり打ち切る", async () => {
++  await withSession(withoutTurnLine({ FAKE_TURN_MS: "200" }), async (session) => {
++    await session.ready();
++    await session.submit("legacy");
++    const startedAt = Date.now();
++    await assert.rejects(session.waitIdle(800, () => startedAt), /timed out/);
++  });
++});
++
++test("終了行を取りこぼしても、受信完了と入力欄が promptFallbackMs 続けばターンを終える", async () => {
++  await withSession(withoutTurnLine({ FAKE_TURN_MS: "200" }), async (session) => {
++    await session.ready();
++    await session.submit("done");
++    const startedAt = Date.now();
++    await session.waitIdle(5_000, undefined, () => true);
++    const elapsed = Date.now() - startedAt;
++    assert.ok(elapsed >= 300 && elapsed < 3_000, String(elapsed));
++  });
++});
++
++test("終了行がある通常のターンは、補助判定を待たずに終える", async () => {
++  await withSession({ promptFallbackMs: 2_000 }, async (session) => {
++    await session.ready();
++    await session.submit("normal");
++    const startedAt = Date.now();
++    await session.waitIdle(5_000, undefined, () => false);
++    assert.ok(Date.now() - startedAt < 1_500);
++  });
++});
+diff --git a/tests/tui-process.test.ts b/tests/tui-process.test.ts
+index 63e7522..8e1c120 100644
+--- a/tests/tui-process.test.ts
++++ b/tests/tui-process.test.ts
+@@ -279,3 +279,21 @@ test("上流が少しずつ返し続ける長いターンは、ターン全体
+     assert.ok(Date.now() - startedAt > 1_500, "ターン全体は timeoutMs より長くかかっている");
+   }, { eventDelayMs: 400 });
+ });
++
++test("終了行を描かない TUI でも、応答を受け取り終えたら補助判定でターンを終える（2026-11-06 に 300 秒待って失敗した）", async () => {
++  await withFixture({}, async (_upstream, input) => {
++    const request = input("終了行なし");
++    const startedAt = Date.now();
++    const output = await runTuiRequest({ ...request, env: { ...request.env, FAKE_TURN_LINE: "0" } });
++    assert.deepEqual(output.message.content, [{ type: "text", text: "hello" }]);
++    assert.ok(Date.now() - startedAt < 10_000);
++  });
++});
++
++test("反例: message_stop が届かない応答は、終了行が無く入力欄が出ていても補助判定で終えず、時間切れにする", async () => {
++  await withFixture({}, async (_upstream, input) => {
++    const request = input("途中で切れる");
++    // 補助判定の待ち時間（3秒）より長い締め切りにして、補助判定が先に働かないことを確かめる
++    await assert.rejects(runTuiRequest({ ...request, timeoutMs: 5_000, env: { ...request.env, FAKE_TURN_LINE: "0" } }), /timed out/);
++  }, { complete: false });
++});
+diff --git a/tests/stream-abort.test.ts b/tests/stream-abort.test.ts
+new file mode 100644
+index 0000000..7bc212f
+--- /dev/null
++++ b/tests/stream-abort.test.ts
+@@ -0,0 +1,79 @@
++import assert from "node:assert/strict";
++import { fileURLToPath } from "node:url";
++import test, { type TestContext } from "node:test";
++import { lazyStream, normalizeContext, type Model } from "@earendil-works/pi-ai";
++import { CLAUDE_CODE_MODELS } from "../src/model-catalog.ts";
++import { createClaudeCodeProvider } from "../src/provider.ts";
++import { TuiSession } from "../src/pty-session.ts";
++import { streamClaudeCode } from "../src/stream.ts";
++import { closeTuiProcesses } from "../src/tui-process.ts";
++
++const fakeClaude = fileURLToPath(new URL("./fixtures/fake-claude.mjs", import.meta.url));
++const model = CLAUDE_CODE_MODELS[0] as Model<any>;
++const context = normalizeContext({ messages: [{ role: "user", content: "hi", timestamp: 1 }] });
++const authContext = { env: async () => undefined, fileExists: async () => false };
++
++function abortedSignal(): AbortSignal {
++  const controller = new AbortController();
++  controller.abort();
++  return controller.signal;
++}
++
++test("Pi が中断済みの signal で要求を始めても、aborted・This operation was aborted として記録する（2026-11-07 に error と記録された）", async () => {
++  const signal = abortedSignal();
++  const provider = createClaudeCodeProvider();
++  // pi-ai の ModelRuntime.streamSimple と同じく、認証の解決を lazyStream の setup の中で行う
++  const stream = lazyStream(model, async () => {
++    await provider.auth.apiKey!.resolve!({ ctx: authContext, signal } as never);
++    return streamClaudeCode(model, context, { signal });
++  });
++  const message = await stream.result();
++  assert.equal(message.stopReason, "aborted");
++  assert.equal(message.errorMessage, "This operation was aborted");
++});
++
++test("Pi の signal で中断した要求は aborted として記録する", async () => {
++  const message = await streamClaudeCode(model, context, { signal: abortedSignal() }).result();
++  assert.equal(message.stopReason, "aborted");
++});
++
++// stream.ts は upstreamUrl を渡さないため、貼り付けを TUI に届ける前に片付けて、本物の API へ要求を出さない
++async function abortDuring(testContext: TestContext, method: "ready" | "submit", sessionId: string) {
++  const entered = Promise.withResolvers<void>();
++  const gate = Promise.withResolvers<void>();
++  const original = TuiSession.prototype[method] as (this: TuiSession, argument?: never) => Promise<void>;
++  testContext.mock.method(TuiSession.prototype, method, async function (this: TuiSession, argument?: never) {
++    entered.resolve();
++    await gate.promise;
++    return original.call(this, argument);
++  });
++  const signal = new AbortController().signal;
++  const env = { PI_CLAUDE_CODE_COMMAND: fakeClaude, PI_CLAUDE_CODE_TUI_TRUST: "1" };
++  const result = streamClaudeCode(model, context, { signal, sessionId, env } as never).result();
++  await entered.promise;
++  const closing = closeTuiProcesses(sessionId);
++  gate.resolve();
++  await closing;
++  return { signal, message: await result };
++}
++
++test("Pi の signal が生きたまま起動中にセッションを片付けた要求も、aborted として記録する", async (testContext) => {
++  const { signal, message } = await abortDuring(testContext, "ready", "stream-abort-ready");
++  assert.equal(signal.aborted, false);
++  assert.equal(message.stopReason, "aborted");
++  assert.equal(message.errorMessage, "Claude Code TUI session was closed");
++});
++
++test("Pi の signal が生きたままターン中にセッションを片付けた要求も、「Claude Code ended」ではなく aborted として記録する", async (testContext) => {
++  const { signal, message } = await abortDuring(testContext, "submit", "stream-abort-turn");
++  assert.equal(signal.aborted, false);
++  assert.equal(message.stopReason, "aborted");
++  assert.equal(message.errorMessage, "Claude Code TUI session was closed");
++});
++
++test("反例: 中断でない失敗（Claude Code が見つからない）は error のまま記録する", async () => {
++  const env = { PI_CLAUDE_CODE_COMMAND: "/nonexistent/claude" };
++  const message = await streamClaudeCode(model, context, { signal: new AbortController().signal, env } as never).result();
++  assert.equal(message.stopReason, "error");
++  assert.match(message.errorMessage ?? "", /not installed/);
++});
