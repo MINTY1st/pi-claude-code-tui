@@ -123,6 +123,69 @@ const STRIPPED_REQUEST_HEADERS = new Set([
 
 const STRIPPED_RESPONSE_HEADERS = new Set(["connection", "transfer-encoding", "server", "date"]);
 
+/** エラー本文として TUI へ返す上限。4xx の本文を最後まで読むとメモリを使い切るため */
+const MAX_ERROR_BODY_BYTES = 65_536;
+const CONSUMED_BODY = Buffer.from(
+  JSON.stringify({
+    type: "error",
+    error: { type: "invalid_request_error", message: "PI_CLAUDE_CODE_TURN_RELAY_CONSUMED" },
+  }),
+);
+
+function isTurnRequest(request: http.IncomingMessage, pathname: string, prefix: string): boolean {
+  return request.method === "POST" && pathname === `${prefix}/v1/messages` && !request.headers.origin;
+}
+
+function rejectConsumed(response: http.ServerResponse): void {
+  response.writeHead(400, { "content-type": "application/json", "content-length": CONSUMED_BODY.length }).end(CONSUMED_BODY);
+}
+
+function mergeBetaHeader(existing: http.OutgoingHttpHeader | undefined, betas: string[]): string {
+  const current = Array.isArray(existing) ? existing.join(",") : String(existing ?? "");
+  return [...new Set([...current.split(",").map((value) => value.trim()).filter(Boolean), ...betas])].join(",");
+}
+
+function upstreamRequestHeaders(
+  incoming: http.IncomingHttpHeaders,
+  bodyLength: number,
+  betas: string[],
+): http.OutgoingHttpHeaders {
+  const headers: http.OutgoingHttpHeaders = {};
+  for (const [name, value] of Object.entries(incoming)) {
+    if (!STRIPPED_REQUEST_HEADERS.has(name.toLowerCase()) && value !== undefined) headers[name] = value;
+  }
+  headers["accept-encoding"] = "identity";
+  headers["content-length"] = bodyLength;
+  if (betas.length > 0) headers["anthropic-beta"] = mergeBetaHeader(headers["anthropic-beta"], betas);
+  return headers;
+}
+
+function downstreamResponseHeaders(upstream: http.IncomingHttpHeaders): http.OutgoingHttpHeaders {
+  const headers: http.OutgoingHttpHeaders = {};
+  for (const [name, value] of Object.entries(upstream)) {
+    if (!STRIPPED_RESPONSE_HEADERS.has(name.toLowerCase()) && value !== undefined) headers[name] = value;
+  }
+  headers.connection = "close";
+  return headers;
+}
+
+function upstreamRequestId(headers: http.IncomingHttpHeaders): string | undefined {
+  return String(headers["request-id"] ?? headers["x-request-id"] ?? "") || undefined;
+}
+
+function appendErrorBody(errorBody: Buffer<ArrayBuffer>, chunk: Buffer): Buffer<ArrayBuffer> {
+  if (errorBody.length >= MAX_ERROR_BODY_BYTES) return errorBody;
+  return Buffer.concat([errorBody, chunk]).subarray(0, MAX_ERROR_BODY_BYTES);
+}
+
+function sendUpstream(upstreamRequest: http.ClientRequest, body: Buffer): Promise<http.IncomingMessage> {
+  return new Promise<http.IncomingMessage>((resolve, reject) => {
+    upstreamRequest.once("response", resolve);
+    upstreamRequest.once("error", reject);
+    upstreamRequest.end(body);
+  });
+}
+
 export class TurnRelay {
   capture: AnthropicCapture;
   used = false;
@@ -253,7 +316,7 @@ export class TurnRelay {
 
   private async handle(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
     const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
-    if (request.method !== "POST" || requestUrl.pathname !== `${this.prefix}/v1/messages` || request.headers.origin) {
+    if (!isTurnRequest(request, requestUrl.pathname, this.prefix)) {
       response.writeHead(404).end();
       return;
     }
@@ -261,13 +324,7 @@ export class TurnRelay {
 
     if (this.cancelled || this.used) {
       this.denied += 1;
-      const body = Buffer.from(
-        JSON.stringify({
-          type: "error",
-          error: { type: "invalid_request_error", message: "PI_CLAUDE_CODE_TURN_RELAY_CONSUMED" },
-        }),
-      );
-      response.writeHead(400, { "content-type": "application/json", "content-length": body.length }).end(body);
+      rejectConsumed(response);
       return;
     }
     this.used = true;
@@ -277,73 +334,16 @@ export class TurnRelay {
     let upstreamRequest: http.ClientRequest | undefined;
     let stage: RelayFailureKind = "request";
     try {
-      let body = await this.readBody(request);
-      this.originalRequestBody = Buffer.from(body);
-      if (this.transformRequest) body = this.transformRequest(body);
-      this.requestBody = Buffer.from(body);
+      const body = await this.readTurnBody(request);
       if (this.cancelled) return;
+      const headers = upstreamRequestHeaders(request.headers, body.length, this.requestBetas);
 
-      const headers: http.OutgoingHttpHeaders = {};
-      for (const [name, value] of Object.entries(request.headers)) {
-        if (!STRIPPED_REQUEST_HEADERS.has(name.toLowerCase()) && value !== undefined) headers[name] = value;
-      }
-      headers["accept-encoding"] = "identity";
-      headers["content-length"] = body.length;
-      if (this.requestBetas.length > 0) {
-        const existing = Array.isArray(headers["anthropic-beta"])
-          ? headers["anthropic-beta"].join(",")
-          : String(headers["anthropic-beta"] ?? "");
-        headers["anthropic-beta"] = [
-          ...new Set([
-            ...existing.split(",").map((value) => value.trim()).filter(Boolean),
-            ...this.requestBetas,
-          ]),
-        ].join(",");
-      }
-
-      const pathPrefix = this.upstream.pathname.replace(/\/$/u, "");
-      const transport = this.upstream.protocol === "https:" ? https : http;
       stage = "connect";
-      upstreamRequest = transport.request({
-        protocol: this.upstream.protocol,
-        hostname: this.upstream.hostname,
-        port: this.upstream.port || undefined,
-        method: "POST",
-        path: `${pathPrefix}/v1/messages${requestUrl.search}`,
-        headers,
-      });
-      this.sockets.add(upstreamRequest);
+      upstreamRequest = this.openUpstream(headers, requestUrl.search);
+      const upstreamResponse = await sendUpstream(upstreamRequest, body);
 
-      const upstreamResponse = await new Promise<http.IncomingMessage>((resolve, reject) => {
-        upstreamRequest!.once("response", resolve);
-        upstreamRequest!.once("error", reject);
-        upstreamRequest!.end(body);
-      });
       stage = "disconnect";
-      this.sockets.add(upstreamResponse);
-      this.status = upstreamResponse.statusCode;
-      this.requestId =
-        String(upstreamResponse.headers["request-id"] ?? upstreamResponse.headers["x-request-id"] ?? "") || undefined;
-      this.rateLimit = rateLimitFromHeaders(upstreamResponse.headers);
-
-      const responseHeaders: http.OutgoingHttpHeaders = {};
-      for (const [name, value] of Object.entries(upstreamResponse.headers)) {
-        if (!STRIPPED_RESPONSE_HEADERS.has(name.toLowerCase()) && value !== undefined) responseHeaders[name] = value;
-      }
-      responseHeaders.connection = "close";
-      response.writeHead(upstreamResponse.statusCode ?? 502, responseHeaders);
-
-      for await (const rawChunk of upstreamResponse) {
-        this.lastActivityAt = Date.now();
-        const chunk = Buffer.isBuffer(rawChunk) ? rawChunk : Buffer.from(rawChunk);
-        if (this.status === 200) this.capture.feed(chunk);
-        else if (this.errorBody.length < 65_536) {
-          this.errorBody = Buffer.concat([this.errorBody, chunk]).subarray(0, 65_536);
-        }
-        if (!response.write(chunk)) await this.waitForDrain(response);
-      }
-      if (this.status === 200) this.capture.finish();
-      response.end();
+      await this.relayResponse(upstreamResponse, response);
     } catch (error) {
       this.failure = relayFailure(error instanceof CaptureError ? "capture" : stage, error);
       if (!response.headersSent) response.writeHead(this.cancelled ? 499 : 502).end();
@@ -354,6 +354,48 @@ export class TurnRelay {
       this.sockets.delete(response);
       upstreamRequest?.destroy();
     }
+  }
+
+  private async readTurnBody(request: http.IncomingMessage): Promise<Buffer> {
+    let body = await this.readBody(request);
+    this.originalRequestBody = Buffer.from(body);
+    if (this.transformRequest) body = this.transformRequest(body);
+    this.requestBody = Buffer.from(body);
+    return body;
+  }
+
+  private openUpstream(headers: http.OutgoingHttpHeaders, search: string): http.ClientRequest {
+    const pathPrefix = this.upstream.pathname.replace(/\/$/u, "");
+    const transport = this.upstream.protocol === "https:" ? https : http;
+    const upstreamRequest = transport.request({
+      protocol: this.upstream.protocol,
+      hostname: this.upstream.hostname,
+      port: this.upstream.port || undefined,
+      method: "POST",
+      path: `${pathPrefix}/v1/messages${search}`,
+      headers,
+    });
+    this.sockets.add(upstreamRequest);
+    return upstreamRequest;
+  }
+
+  private async relayResponse(upstreamResponse: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
+    this.sockets.add(upstreamResponse);
+    this.status = upstreamResponse.statusCode;
+    this.requestId = upstreamRequestId(upstreamResponse.headers);
+    this.rateLimit = rateLimitFromHeaders(upstreamResponse.headers);
+
+    response.writeHead(upstreamResponse.statusCode ?? 502, downstreamResponseHeaders(upstreamResponse.headers));
+
+    for await (const rawChunk of upstreamResponse) {
+      this.lastActivityAt = Date.now();
+      const chunk = Buffer.isBuffer(rawChunk) ? rawChunk : Buffer.from(rawChunk);
+      if (this.status === 200) this.capture.feed(chunk);
+      else this.errorBody = appendErrorBody(this.errorBody, chunk);
+      if (!response.write(chunk)) await this.waitForDrain(response);
+    }
+    if (this.status === 200) this.capture.finish();
+    response.end();
   }
 
   private async waitForDrain(response: http.ServerResponse): Promise<void> {
