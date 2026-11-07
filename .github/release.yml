@@ -1,0 +1,15 @@
+changelog:
+  categories:
+    - title: Bug fixes
+      labels:
+        - fix
+    - title: Features
+      labels:
+        - feature
+    - title: Documentation
+      labels:
+        - docs
+    - title: CI and maintenance
+      labels:
+        - ci
+        - chore
