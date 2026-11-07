@@ -297,3 +297,93 @@ test("反例: message_stop が届かない応答は、終了行が無く入力�
     await assert.rejects(runTuiRequest({ ...request, timeoutMs: 5_000, env: { ...request.env, FAKE_TURN_LINE: "0" } }), /timed out/);
   }, { complete: false });
 });
+
+const thinkingOn = (effort: string) => ({ thinking: { type: "adaptive", display: "summarized" }, output_config: { effort } });
+const sentKeys = (body: string) => {
+  const sent = JSON.parse(body) as Record<string, unknown>;
+  return { thinking: sent.thinking, output_config: sent.output_config, context_management: sent.context_management };
+};
+
+test("effort だけを変えた次のターンは Claude Code を作り直さず、そのターンの output_config を上流へ送る", async () => {
+  await withFixture({}, async (upstream, input, log) => {
+    await runTuiRequest({ ...input("一つ目"), extraBody: thinkingOn("high") });
+    await runTuiRequest({ ...input("二つ目"), extraBody: thinkingOn("low") });
+    await runTuiRequest({ ...input("三つ目"), extraBody: thinkingOn("high") });
+    assert.equal((await log()).filter((text) => text === "started").length, 1);
+    assert.deepEqual(upstream.bodies.map((body) => (JSON.parse(body) as { output_config?: unknown }).output_config), [{ effort: "high" }, { effort: "low" }, { effort: "high" }]);
+  });
+});
+
+test("起動時の settings には起動したターンの output_config を残し、effort を変えても書き直さない", async () => {
+  await withFixture({}, async (_upstream, input) => {
+    const settingsLog = join(input("").cwd!, "settings.log");
+    const requestEnv = { ...input("").env, FAKE_SETTINGS_LOG: settingsLog };
+    await runTuiRequest({ ...input("一つ目"), env: requestEnv, extraBody: thinkingOn("high") });
+    await runTuiRequest({ ...input("二つ目"), env: requestEnv, extraBody: thinkingOn("low") });
+    const launched = (await readFile(settingsLog, "utf8")).trim().split("\n").map((line) => JSON.parse(JSON.parse(line) as string) as unknown);
+    assert.deepEqual(launched, [thinkingOn("high")]);
+  });
+});
+
+test("thinking オフのターンは context_management を上流の本文の最上位に書く", async () => {
+  await withFixture({}, async (upstream, input) => {
+    await runTuiRequest({ ...input("一つ目"), extraBody: { thinking: { type: "disabled" }, context_management: { edits: [] } } });
+    assert.deepEqual(sentKeys(upstream.bodies[0]!), { thinking: { type: "disabled" }, output_config: undefined, context_management: { edits: [] } });
+  });
+});
+
+test("thinking のオン・オフを切り替えたターンは Claude Code を作り直す", async () => {
+  await withFixture({}, async (upstream, input, log) => {
+    await runTuiRequest({ ...input("一つ目"), extraBody: thinkingOn("high") });
+    await runTuiRequest({ ...input("二つ目"), extraBody: { thinking: { type: "disabled" }, context_management: { edits: [] } } });
+    assert.equal((await log()).filter((text) => text === "started").length, 2);
+    assert.deepEqual(sentKeys(upstream.bodies[1]!), { thinking: { type: "disabled" }, output_config: undefined, context_management: { edits: [] } });
+  });
+});
+
+test("反例: Claude Code が本文から落とした output_config は、ターンの値があっても上流へ足さない", async () => {
+  await withFixture({}, async (upstream, input) => {
+    const request = input("一つ目");
+    await runTuiRequest({ ...request, env: { ...request.env, FAKE_DROP_BODY_KEYS: "output_config" }, extraBody: thinkingOn("low") });
+    assert.deepEqual(sentKeys(upstream.bodies[0]!), { thinking: { type: "adaptive", display: "summarized" }, output_config: undefined, context_management: undefined });
+  });
+});
+
+test("反例: output_config の有無だけが変わったターンは、値を指紋から外していても Claude Code を作り直す", async () => {
+  await withFixture({}, async (upstream, input, log) => {
+    await runTuiRequest({ ...input("一つ目"), extraBody: {} });
+    await runTuiRequest({ ...input("二つ目"), extraBody: { output_config: { effort: "low" } } });
+    assert.equal((await log()).filter((text) => text === "started").length, 2);
+    assert.equal((JSON.parse(upstream.bodies[0]!) as { output_config?: unknown }).output_config, undefined);
+  });
+});
+
+test("反例: max_tokens が変わったターンは、これまでどおり Claude Code を作り直す", async () => {
+  await withFixture({}, async (_upstream, input, log) => {
+    await runTuiRequest({ ...input("一つ目"), extraBody: { ...thinkingOn("high"), max_tokens: 4096 } });
+    await runTuiRequest({ ...input("二つ目"), extraBody: { ...thinkingOn("high"), max_tokens: 8192 } });
+    assert.equal((await log()).filter((text) => text === "started").length, 2);
+  });
+});
+
+test("同時実行: 同じセッションへ effort の違う要求が並んでも、それぞれの本文にそれぞれの effort を書く", async () => {
+  await withFixture({}, async (upstream, input) => {
+    await Promise.all([
+      runTuiRequest({ ...input("会話 A"), extraBody: thinkingOn("high") }),
+      runTuiRequest({ ...input("会話 B"), extraBody: thinkingOn("low") }),
+    ]);
+    const pairs = upstream.bodies.map((body) => {
+      const sent = JSON.parse(body) as { messages: Array<{ content: Array<{ text: string }> }>; output_config?: { effort?: string } };
+      return [sent.messages[0]!.content.at(-1)!.text, sent.output_config?.effort];
+    });
+    assert.deepEqual(pairs.sort(), [["会話 A", "high"], ["会話 B", "low"]]);
+  });
+});
+
+test("反例: 上流が 400 を返したターンのあとも、次のターンは自分の effort で送り、前のターンの値を引き継がない", async () => {
+  await withFixture({}, async (upstream, input) => {
+    await assert.rejects(runTuiRequest({ ...input("一つ目"), extraBody: thinkingOn("high") }));
+    await assert.rejects(runTuiRequest({ ...input("二つ目"), extraBody: thinkingOn("low") }));
+    assert.deepEqual(upstream.bodies.map((body) => (JSON.parse(body) as { output_config?: unknown }).output_config), [{ effort: "high" }, { effort: "low" }]);
+  }, { status: 400 });
+});

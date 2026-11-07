@@ -14,6 +14,7 @@ import { initialContext, replaceTranscript } from "./tui-transcript.ts";
 import { incompleteUpstreamMessage } from "./relay-failure.ts";
 import { TurnRelay } from "./turn-relay.ts";
 import { abortTuiRequests, trackTuiRequest } from "./tui-lifecycle.ts";
+import { applyTurnBody, launchIdentity, turnBodyOf } from "./turn-body.ts";
 
 export const TUI_MODE_ENV = "PI_CLAUDE_CODE_TUI";
 export const TUI_TRUST_ENV = "PI_CLAUDE_CODE_TUI_TRUST";
@@ -56,7 +57,8 @@ export function tuiEnvironment(env: Record<string, string | undefined>): Record<
 }
 
 function fingerprint(input: RunClaudeInput, env: Record<string, string>): string {
-  const material = { cwd: resolve(input.cwd ?? process.cwd()), env, extraBody: input.extraBody, manifest: input.manifest, model: input.model, systemPrompt: input.systemPrompt, timeoutMs: input.timeoutMs, upstreamUrl: input.upstreamUrl };
+  const launch = launchIdentity(input.extraBody);
+  const material = { cwd: resolve(input.cwd ?? process.cwd()), env, extraBody: launch.body, turnBodyKeys: launch.turnKeys, manifest: input.manifest, model: input.model, systemPrompt: input.systemPrompt, timeoutMs: input.timeoutMs, upstreamUrl: input.upstreamUrl };
   return createHash("sha256").update(JSON.stringify(material)).digest("hex");
 }
 
@@ -92,6 +94,8 @@ class TuiWorker {
     let session: TuiSession | undefined;
     try {
       const paths = { tools: join(root, "tools.json"), settings: join(root, "settings.json"), listed: join(root, "listed") };
+      // output_config と context_management も起動したターンの値で残す。effort が無いと Claude Code が anthropic-beta に
+      // effort-2025-11-24 を足すため。以降のターンの値は relay が本文に書き直す（turn-body.ts）
       await Promise.all([
         writeFile(paths.tools, JSON.stringify(input.manifest), "utf8"),
         writeFile(paths.settings, JSON.stringify({ env: { CLAUDE_CODE_EXTRA_BODY: JSON.stringify(input.extraBody) } }), "utf8"),
@@ -141,7 +145,8 @@ class TuiWorker {
     if (this.broken) throw new Error("Claude Code's interactive mode did not come back from /clear");
     const deliver = (event: AnthropicStreamEvent) => input.onEvent?.(event);
     const pinned = { userPrefix: input.initialUserPrefix, systemMessages: input.initialSystemMessages };
-    this.relay.beginTurn(deliver, (body) => replaceTranscript(body, input.frames, input.systemPrompt, input.nativeSystemInjections, pinned), input.betas);
+    const turnBody = turnBodyOf(input.extraBody);
+    this.relay.beginTurn(deliver, (body) => applyTurnBody(replaceTranscript(body, input.frames, input.systemPrompt, input.nativeSystemInjections, pinned), turnBody), input.betas);
     const abort = () => void this.close();
     input.signal?.addEventListener("abort", abort, { once: true });
     try {
