@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { registerSessionResourceCleanup } from "@earendil-works/pi-ai";
 import { usageCreditsAllowed, usageCreditsChargeError } from "./billing.ts";
-import { processEnvironment, readyClaudeCommand, type RunClaudeInput, type RunClaudeOutput } from "./claude-cli.ts";
+import { claudeSettingsJson, processEnvironment, readyClaudeCommand, type RunClaudeInput, type RunClaudeOutput } from "./claude-cli.ts";
 import { envFlagEnabled } from "./env.ts";
 import type { AnthropicStreamEvent, NativeMessage, NativeResult } from "./native-types.ts";
 import { TuiSession } from "./pty-session.ts";
@@ -98,7 +98,7 @@ class TuiWorker {
       // effort-2025-11-24 を足すため。以降のターンの値は relay が本文に書き直す（turn-body.ts）
       await Promise.all([
         writeFile(paths.tools, JSON.stringify(input.manifest), "utf8"),
-        writeFile(paths.settings, JSON.stringify({ env: { CLAUDE_CODE_EXTRA_BODY: JSON.stringify(input.extraBody) } }), "utf8"),
+        writeFile(paths.settings, claudeSettingsJson(input.extraBody), "utf8"),
       ]);
       const mcpConfig = JSON.stringify({ mcpServers: { pi: { command: process.execPath, args: [INERT_MCP_PATH, paths.tools, paths.listed] } } });
       session = TuiSession.start({
