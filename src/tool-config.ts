@@ -1,5 +1,5 @@
 import { renderSystemMessageUpdate, type SimpleStreamOptions, type SystemMessage, type Tool } from "@earendil-works/pi-ai";
-import { supportsAdaptiveThinking } from "./model-catalog.ts";
+import { supportsAdaptiveThinking, thinkingOffShape } from "./model-catalog.ts";
 
 export const TOOL_PREFIX = "mcp__pi__";
 
@@ -108,8 +108,8 @@ export function buildExtraBody(
       effort: options.reasoning === "minimal" ? "low" : options.reasoning,
     };
   } else {
-    body.thinking = { type: "disabled" };
-    // Native clear-thinking edits are invalid when thinking is disabled.
+    body.thinking = { type: thinkingOffShape(modelId) };
+    // Claude Code 既定の clear-thinking の edits は thinking オフでは無効になるため空で上書きする。between_tools でも edits: [] が通ることを 2026-11-07 に実機で確認した
     body.context_management = { edits: [] };
   }
   return body;
