@@ -9,7 +9,6 @@ import { claudeSettingsJson, processEnvironment, readyClaudeCommand, type RunCla
 import { envFlagEnabled } from "./env.ts";
 import type { AnthropicStreamEvent, NativeMessage, NativeResult } from "./native-types.ts";
 import { TuiSession } from "./pty-session.ts";
-import { TOOL_PREFIX } from "./transcript.ts";
 import { initialContext, replaceTranscript } from "./tui-transcript.ts";
 import { incompleteUpstreamMessage } from "./relay-failure.ts";
 import { TurnRelay } from "./turn-relay.ts";
@@ -66,15 +65,6 @@ function assertCompleteCapture(relay: TurnRelay): NativeMessage {
   if (!relay.used) throw new Error("Claude Code's interactive mode sent no request for the turn");
   if (relay.status === 200 && relay.capture.complete && relay.capture.message) return relay.capture.message;
   throw new Error(incompleteUpstreamMessage(relay));
-}
-
-function assertKnownTools(message: NativeMessage, toolNames: Set<string>): void {
-  for (const block of message.content) {
-    if (block.type !== "tool_use") continue;
-    if (!block.name.startsWith(TOOL_PREFIX) || !toolNames.has(block.name.slice(TOOL_PREFIX.length))) {
-      throw new Error("Claude Code returned a tool outside Pi's current tool inventory");
-    }
-  }
 }
 
 class TuiWorker {
@@ -166,7 +156,6 @@ class TuiWorker {
 
   private output(input: RunClaudeInput): RunClaudeOutput {
     const message = assertCompleteCapture(this.relay);
-    assertKnownTools(message, input.toolNames);
     const usage = message.usage;
     if (!usage || typeof usage.input_tokens !== "number" || typeof usage.output_tokens !== "number") {
       throw new Error("Claude Code response did not include complete token usage");

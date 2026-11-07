@@ -3,6 +3,11 @@ import { supportsAdaptiveThinking, thinkingOffShape } from "./model-catalog.ts";
 
 export const TOOL_PREFIX = "mcp__pi__";
 
+// Pi の一覧に無い名前も例外にしない。Pi の agent loop が「Tool <name> not found」のツール結果をモデルへ返して続けるため
+export function piToolName(nativeName: string): string {
+  return nativeName.startsWith(TOOL_PREFIX) ? nativeName.slice(TOOL_PREFIX.length) : nativeName;
+}
+
 export function sanitizeSurrogates(text: string): string {
   return text.replace(/[\uD800-\uDFFF]/gu, "\uFFFD");
 }
