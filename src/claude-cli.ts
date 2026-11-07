@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { spawn, type ChildProcess } from "node:child_process";
 import { registerSessionResourceCleanup } from "@earendil-works/pi-ai";
+import { incompleteUpstreamMessage } from "./relay-failure.ts";
 import { TurnRelay } from "./turn-relay.ts";
 import { usageCreditsAllowed, usageCreditsChargeError, type RateLimitInfo } from "./billing.ts";
 import { envFlagEnabled } from "./env.ts";
@@ -724,7 +725,7 @@ class ClaudeProcess {
         writeFile(systemPath, input.systemPrompt, "utf8"),
       ]);
 
-      relay = new TurnRelay(input.upstreamUrl ?? "https://api.anthropic.com", plan.timeoutMs);
+      relay = new TurnRelay(input.upstreamUrl ?? "https://api.anthropic.com");
       const env = { ...plan.env, ANTHROPIC_BASE_URL: await relay.start() };
       const mcp = {
         mcpServers: {
@@ -918,12 +919,7 @@ class ClaudeProcess {
       let message: NativeMessage | undefined;
       if (this.relay.used) {
         if (this.relay.status !== 200 || !this.relay.capture.complete || !this.relay.capture.message) {
-          let detail = `status ${this.relay.status ?? "unknown"}, capture ${this.relay.capture.complete ? "complete" : "incomplete"}`;
-          if (this.relay.failure) detail += `, relay failure ${this.relay.failure}`;
-          if (this.relay.denied) detail += `, native retries denied ${this.relay.denied}`;
-          const upstreamError = this.relay.errorText();
-          if (upstreamError) detail += `, upstream said: ${upstreamError.slice(0, 500)}`;
-          throw new Error(`Incomplete Claude Code upstream response (${detail})`);
+          throw new Error(incompleteUpstreamMessage(this.relay));
         }
         message = this.relay.capture.message;
         sawMessageStop = true;

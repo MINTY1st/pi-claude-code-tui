@@ -11,6 +11,7 @@ import type { AnthropicStreamEvent, NativeMessage, NativeResult } from "./native
 import { TuiSession } from "./pty-session.ts";
 import { TOOL_PREFIX } from "./transcript.ts";
 import { initialContext, replaceTranscript } from "./tui-transcript.ts";
+import { incompleteUpstreamMessage } from "./relay-failure.ts";
 import { TurnRelay } from "./turn-relay.ts";
 import { abortTuiRequests, trackTuiRequest } from "./tui-lifecycle.ts";
 
@@ -62,11 +63,7 @@ function fingerprint(input: RunClaudeInput, env: Record<string, string>): string
 function assertCompleteCapture(relay: TurnRelay): NativeMessage {
   if (!relay.used) throw new Error("Claude Code's interactive mode sent no request for the turn");
   if (relay.status === 200 && relay.capture.complete && relay.capture.message) return relay.capture.message;
-  let detail = `status ${relay.status ?? "unknown"}, capture ${relay.capture.complete ? "complete" : "incomplete"}`;
-  if (relay.failure) detail += `, relay failure ${relay.failure}`;
-  const upstreamError = relay.errorText();
-  if (upstreamError) detail += `, upstream said: ${upstreamError.slice(0, 500)}`;
-  throw new Error(`Incomplete Claude Code upstream response (${detail})`);
+  throw new Error(incompleteUpstreamMessage(relay));
 }
 
 function assertKnownTools(message: NativeMessage, toolNames: Set<string>): void {
@@ -91,7 +88,7 @@ class TuiWorker {
   static async create(input: RunClaudeInput, env: Record<string, string>, print: string): Promise<TuiWorker> {
     const command = await readyClaudeCommand({ ...process.env, ...input.env }, input.signal);
     const root = await mkdtemp(join(tmpdir(), "pi-claude-code-tui-"));
-    const relay = new TurnRelay(input.upstreamUrl ?? "https://api.anthropic.com", input.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    const relay = new TurnRelay(input.upstreamUrl ?? "https://api.anthropic.com");
     let session: TuiSession | undefined;
     try {
       const paths = { tools: join(root, "tools.json"), settings: join(root, "settings.json"), listed: join(root, "listed") };
