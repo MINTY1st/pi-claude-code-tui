@@ -27,10 +27,10 @@ import {
   getInitialUserPrefix,
   makeReplayDiagnostic,
   NATIVE_TOOL_CHANGES_BETA,
+  piToolName,
   prepareFrames,
   prepareNativeTranscript,
   prepareTools,
-  TOOL_PREFIX,
 } from "./transcript.ts";
 
 interface IndexedText {
@@ -124,7 +124,7 @@ function comparableContent(content: AssistantMessage["content"]): unknown[] {
   });
 }
 
-function nativeContent(content: NativeContentBlock[], toolNames: Set<string>): AssistantMessage["content"] {
+function nativeContent(content: NativeContentBlock[]): AssistantMessage["content"] {
   const converted: AssistantMessage["content"] = [];
   for (const block of content) {
     if (block.type === "text") {
@@ -143,10 +143,7 @@ function nativeContent(content: NativeContentBlock[], toolNames: Set<string>): A
         redacted: true,
       });
     } else if (block.type === "tool_use") {
-      if (!block.name.startsWith(TOOL_PREFIX)) throw new Error(`Claude Code returned unexpected tool ${block.name}`);
-      const name = block.name.slice(TOOL_PREFIX.length);
-      if (!toolNames.has(name)) throw new Error(`Claude Code returned unavailable tool ${name}`);
-      converted.push({ type: "toolCall", id: block.id, name, arguments: block.input as never });
+      converted.push({ type: "toolCall", id: block.id, name: piToolName(block.name), arguments: block.input as never });
     }
   }
   return converted;
@@ -160,7 +157,6 @@ class EventTranslator {
     private readonly model: Model<any>,
     private readonly output: AssistantMessage,
     private readonly stream: AssistantMessageEventStream,
-    private readonly toolNames: Set<string>,
   ) {}
 
   event(event: AnthropicStreamEvent): void {
@@ -197,7 +193,7 @@ class EventTranslator {
     initialUserPrefix?: unknown[],
     initialSystemMessages?: unknown[],
   ): void {
-    const authoritative = nativeContent(message.content, this.toolNames);
+    const authoritative = nativeContent(message.content);
     if (!this.sawContentEvent) {
       this.emitComplete(authoritative);
     } else if (JSON.stringify(comparableContent(this.output.content)) !== JSON.stringify(comparableContent(authoritative))) {
@@ -241,13 +237,10 @@ class EventTranslator {
       } as IndexedThinking);
       this.stream.push({ type: "thinking_start", contentIndex, partial: this.output });
     } else if (native.type === "tool_use") {
-      if (!native.name.startsWith(TOOL_PREFIX)) throw new Error(`Claude Code returned unexpected tool ${native.name}`);
-      const name = native.name.slice(TOOL_PREFIX.length);
-      if (!this.toolNames.has(name)) throw new Error(`Claude Code returned unavailable tool ${name}`);
       this.output.content.push({
         type: "toolCall",
         id: native.id,
-        name,
+        name: piToolName(native.name),
         arguments: (native.input ?? {}) as ToolCall["arguments"],
         nativeIndex,
         partialJson: "",
@@ -376,7 +369,7 @@ export function streamClaudeCode(
         nativeTranscript?.requestTools ?? preparedTools.nativeTools,
         options,
       );
-      const translator = new EventTranslator(model, output, stream, preparedTools.names);
+      const translator = new EventTranslator(model, output, stream);
 
       stream.push({ type: "start", partial: output });
       // claude -p は entrypoint=sdk-cli として5時間枠を約2倍で数えられるため、既定は対話 TUI（anthropics/claude-code#97074）
@@ -388,7 +381,6 @@ export function streamClaudeCode(
         systemPrompt,
         manifest: preparedTools.manifest,
         extraBody,
-        toolNames: preparedTools.names,
         signal: options?.signal,
         timeoutMs: options?.timeoutMs,
         env: options?.env,

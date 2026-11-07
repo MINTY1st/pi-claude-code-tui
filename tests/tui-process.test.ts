@@ -79,7 +79,6 @@ async function withFixture(headers: Record<string, string>, body: (upstream: Ups
     systemPrompt: "pi system",
     manifest: [],
     extraBody: {},
-    toolNames: new Set(),
     upstreamUrl: upstream.url,
     sessionId: "session-1",
     timeoutMs: 10_000,
@@ -241,7 +240,7 @@ test("tool_use を Pi へ返し、Claude Code が続けて送る2本の回復要
   const tool: NativeContentBlock = { type: "tool_use", id: "toolu_read", name: "mcp__pi__read", input: { path: "/tmp/example" } };
   await withFixture({}, async (upstream, input) => {
     const request = input("読む");
-    const output = await runTuiRequest({ ...request, toolNames: new Set(["read"]), env: { ...request.env, FAKE_RECOVERY_REQUESTS: "2" } });
+    const output = await runTuiRequest({ ...request, env: { ...request.env, FAKE_RECOVERY_REQUESTS: "2" } });
     assert.deepEqual(output.message.content, [tool]);
     assert.equal(output.message.stop_reason, "tool_use");
     assert.equal(output.relay.upstreamRequests, 1);
@@ -250,10 +249,15 @@ test("tool_use を Pi へ返し、Claude Code が続けて送る2本の回復要
   }, { content: tool });
 });
 
-test("Pi に登録されていないツールを返す応答は採用しない", async () => {
-  await withFixture({}, async (_upstream, input) => {
-    await assert.rejects(runTuiRequest(input("読む")), /outside Pi/);
-  }, { content: { type: "tool_use", id: "t", name: "mcp__pi__unknown", input: {} } });
+test("Pi に登録されていないツールを返す応答も、例外にせず tool_use のまま Pi へ返す（Pi の agent loop がツールの無いことをモデルへ返すため）", async () => {
+  for (const name of ["mcp__pi__unknown", "write"]) {
+    const tool: NativeContentBlock = { type: "tool_use", id: "t", name, input: {} };
+    await withFixture({}, async (_upstream, input) => {
+      const output = await runTuiRequest(input("読む"));
+      assert.deepEqual(output.message.content, [tool]);
+      assert.equal(output.message.stop_reason, "tool_use");
+    }, { content: tool });
+  }
 });
 
 test("途中で切れた SSE や HTTP 400 は成功結果にせずエラーにする", async () => {

@@ -16,7 +16,7 @@ import type {
   NativeResult,
   NativeUsage,
 } from "./native-types.ts";
-import { TOOL_PREFIX, type NativeSystemInjection, type ToolManifestEntry } from "./transcript.ts";
+import type { NativeSystemInjection, ToolManifestEntry } from "./transcript.ts";
 import { childExit, claudeSettingsJson, killProcessTree, processEnvironment, spawnCommand } from "./claude-spawn.ts";
 import { configuredCommand, readyClaudeCommand } from "./claude-executable.ts";
 import { deriveInitialSystemMessages, deriveInitialUserPrefix, rewriteInitialRequest } from "./initial-request.ts";
@@ -29,7 +29,6 @@ export interface RunClaudeInput {
   systemPrompt: string;
   manifest: ToolManifestEntry[];
   extraBody: Record<string, unknown>;
-  toolNames: Set<string>;
   signal?: AbortSignal;
   timeoutMs?: number;
   env?: Record<string, string | undefined>;
@@ -441,13 +440,6 @@ export class ClaudeProcess {
       const maxTurnsBoundary = hasTools && result.subtype === "error_max_turns";
       if (!maxTurnsBoundary && !nativeFailureHandled && (result.is_error || result.subtype !== "success")) {
         throw new Error(`Claude Code request failed: ${result.subtype ?? "unknown result"}`);
-      }
-
-      for (const block of message.content) {
-        if (block.type !== "tool_use") continue;
-        if (!block.name.startsWith(TOOL_PREFIX) || !input.toolNames.has(block.name.slice(TOOL_PREFIX.length))) {
-          throw new Error("Claude Code returned a tool outside Pi's current tool inventory");
-        }
       }
 
       const usage = message.usage ?? result.usage;

@@ -9,7 +9,7 @@ import {
   type ToolResultMessage,
 } from "@earendil-works/pi-ai";
 import { nativeSystemBlocks, prepareTools, sanitizeSurrogates, TOOL_PREFIX } from "./tool-config.ts";
-export { buildExtraBody, normalizeInputSchema, prepareTools, TOOL_PREFIX, type ToolManifestEntry } from "./tool-config.ts";
+export { buildExtraBody, normalizeInputSchema, piToolName, prepareTools, TOOL_PREFIX, type ToolManifestEntry } from "./tool-config.ts";
 import { normalizeFrameToolIds } from "./tool-call-ids.ts";
 import { withoutForeignThinking } from "./thinking-replay.ts";
 import type { NativeContentBlock, NativeFrame, NativeMessage } from "./native-types.ts";
