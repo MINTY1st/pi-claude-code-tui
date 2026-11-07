@@ -66,10 +66,19 @@ Connection failures, dropped connections and idle timeouts are reported with wor
 
 - Claude Code updates may break terminal-output detection. One live test timed out; retries passed, but the cause remains unknown.
 - Pi's prompt is carried in a user message, not as system-level instructions. Complex tool schemas may be simplified; mid-conversation tool changes work only on supported models.
-- Cross-provider tool-call IDs are normalized for Anthropic on outgoing replay only; saved history is unchanged. See [replay and folder trust](docs/cross-provider-replay.md).
+- Cross-provider tool-call IDs are normalized for Anthropic on outgoing replay only; saved history is unchanged.
+- `claude-opus-5-5` and `claude-fable-5-1` reject both `disabled` and `between_tools` for turning thinking off, so requests with reasoning off fail with HTTP 400 on those models. `claude-sonnet-5-5` uses `between_tools`; other models use `disabled`.
+- Thinking text shown in Pi is an API-generated summary and may be in English regardless of the conversation language.
 - Each call replays Pi's history after `/clear`, rather than resuming a native Claude Code conversation. Only the first upstream request is forwarded; additional requests in that call are rejected.
 - One process is cached per session, two across the extension, with a 15-minute idle expiry. When the cache is full, a new session closes the least recently used idle process to take its place; if every cached process is busy, the new session uses a disposable worker. Concurrent requests and requests without a session ID use disposable workers.
 - Cleanup covers the same process group only, not descendants escaping with `setsid`/`setpgid` or SIGKILL of the PTY helper itself.
+
+## Documentation
+
+- [Architecture](docs/architecture.md): request paths, the relay, and a source map
+- [Turn lifecycle](docs/turn-lifecycle.md): how the end of a TUI turn is detected, timeouts, and aborts
+- [Errors and retries](docs/errors-and-retries.md): response checks and which failures Pi retries
+- [Worker reuse](docs/worker-reuse.md): when a Claude Code process is reused and how per-turn values are applied
 
 ## Development
 
@@ -83,6 +92,8 @@ npm pack --dry-run
 ```
 
 Tests use a fake Claude Code and local upstream, not the real model service. PTY tests start real child processes and require `python3`.
+
+`scripts/verify-turn-body.mts` and `scripts/verify-thinking-summaries.mts` send a few real requests through Claude Code to check behavior that the fake cannot reproduce (request bodies, beta headers, cache reads, thinking text). They use your Claude plan; run them only when changing those areas.
 
 [The CI workflow](.github/workflows/ci.yml) runs `npm ci --ignore-scripts`, `npm test`, and `npm run check` on Node 24.22.2 for every pull request and every push to `main`.
 
