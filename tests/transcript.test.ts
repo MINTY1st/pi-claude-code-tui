@@ -249,6 +249,58 @@ test("buildExtraBody keeps thinking disabled without display when reasoning is a
   assert.deepEqual(buildExtraBody("claude-opus-5-5", []), expected);
 });
 
+test("buildExtraBody turns thinking off with between_tools on claude-sonnet-5-5", () => {
+  const expected = {
+    tools: [],
+    thinking: { type: "between_tools" },
+    context_management: { edits: [] },
+  };
+  assert.deepEqual(buildExtraBody("claude-sonnet-5-5", [], {}), expected);
+  assert.deepEqual(buildExtraBody("claude-sonnet-5-5", []), expected);
+  assert.deepEqual(buildExtraBody("claude-sonnet-5-5[1m]", [], {}), expected);
+});
+
+test("buildExtraBody keeps thinking disabled on models outside the between_tools list", () => {
+  for (const modelId of [
+    "claude-haiku-5-5",
+    "claude-sonnet-5",
+    "claude-haiku-4-5-20251001",
+    "claude-opus-5-5",
+    "claude-fable-5-1",
+    "claude-future-1",
+  ]) {
+    assert.deepEqual(buildExtraBody(modelId, [], {}), {
+      tools: [],
+      thinking: { type: "disabled" },
+      context_management: { edits: [] },
+    }, modelId);
+  }
+});
+
+test("buildExtraBody keeps adaptive thinking on claude-sonnet-5-5 when reasoning is set", () => {
+  assert.deepEqual(buildExtraBody("claude-sonnet-5-5", [], { reasoning: "minimal", maxTokens: 256 }), {
+    tools: [],
+    max_tokens: 256,
+    thinking: { type: "adaptive", display: "summarized" },
+    output_config: { effort: "low" },
+  });
+  for (const reasoning of ["low", "medium", "high", "xhigh"] as const) {
+    const body = buildExtraBody("claude-sonnet-5-5", [], { reasoning });
+    assert.deepEqual(body.thinking, { type: "adaptive", display: "summarized" });
+    assert.deepEqual(body.output_config, { effort: reasoning });
+    assert.equal("context_management" in body, false);
+  }
+});
+
+test("buildExtraBody returns an independent thinking-off object on every call", () => {
+  const first = buildExtraBody("claude-sonnet-5-5", [], {});
+  const second = buildExtraBody("claude-sonnet-5-5", [], {});
+  assert.notEqual(first.thinking, second.thinking);
+  assert.notEqual(first.context_management, second.context_management);
+  (first.thinking as Record<string, unknown>).type = "tampered";
+  assert.deepEqual(second.thinking, { type: "between_tools" });
+});
+
 test("buildExtraBody omits thinking for models without adaptive thinking when reasoning is set", () => {
   const body = buildExtraBody("claude-haiku-4-5-20251001", [], { reasoning: "low" });
   assert.equal("thinking" in body, false);
