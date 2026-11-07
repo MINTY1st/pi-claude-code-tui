@@ -203,6 +203,27 @@ class TuiWorker {
 
 const workers = new Map<string, TuiWorker>();
 
+/** 使用中でない worker のうち最後に使ったのが最も古いもののセッション ID。同じ時刻なら Map に先に入ったもの */
+export function oldestIdleSession(entries: Iterable<[string, { busy: boolean; lastUsed: number }]>): string | undefined {
+  let oldest: { sessionId: string; lastUsed: number } | undefined;
+  for (const [sessionId, worker] of entries) {
+    if (!worker.busy && (!oldest || worker.lastUsed < oldest.lastUsed)) oldest = { sessionId, lastUsed: worker.lastUsed };
+  }
+  return oldest?.sessionId;
+}
+
+/** 空きが無ければ使用中でない古い worker から Map を外す。閉じるのは呼び出し側に任せる */
+function makeRoom(): { room: boolean; evicted: TuiWorker[] } {
+  const evicted: TuiWorker[] = [];
+  while (workers.size >= MAX_CACHED) {
+    const victim = oldestIdleSession(workers);
+    if (victim === undefined) break;
+    evicted.push(workers.get(victim)!);
+    workers.delete(victim);
+  }
+  return { room: workers.size < MAX_CACHED, evicted };
+}
+
 async function acquire(input: RunClaudeInput, env: Record<string, string>): Promise<{ worker: TuiWorker; retained: boolean }> {
   const print = fingerprint(input, env);
   const cached = input.sessionId ? workers.get(input.sessionId) : undefined;
@@ -217,9 +238,12 @@ async function acquire(input: RunClaudeInput, env: Record<string, string>): Prom
   const worker = await TuiWorker.create(input, env, print);
   worker.reserve();
   // 並行したリクエストや Pi のセッション ID が無いリクエストは、使い捨てのプロセスで受ける
-  const retained = !!input.sessionId && !workers.has(input.sessionId) && workers.size < MAX_CACHED;
-  if (retained) workers.set(input.sessionId!, worker);
-  return { worker, retained };
+  if (!input.sessionId || workers.has(input.sessionId)) return { worker, retained: false };
+  // 空きの判定と登録は create の後に await を挟まず行う。前に行うと、起動を待つ間に並行した acquire が同じ空きを数える
+  const { room, evicted } = makeRoom();
+  if (room) workers.set(input.sessionId, worker);
+  await Promise.all(evicted.map((old) => old.close().catch(() => undefined)));
+  return { worker, retained: room };
 }
 
 export function runTuiRequest(input: RunClaudeInput): Promise<RunClaudeOutput> {
