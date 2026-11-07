@@ -275,7 +275,6 @@ for await (const line of input) {
       systemPrompt: "system",
       manifest: [],
       extraBody: { tools: [] },
-      toolNames: new Set(),
       env: {
         PI_CLAUDE_CODE_COMMAND: executable,
         EXPECTED_CWD: workingRoot,
@@ -302,7 +301,6 @@ for await (const line of input) {
       systemPrompt: "system",
       manifest: [],
       extraBody: { tools: [] },
-      toolNames: new Set<string>(),
       env: {
         PI_CLAUDE_CODE_COMMAND: executable,
         EXPECTED_CWD: workingRoot,
@@ -376,7 +374,6 @@ for await (const line of input) {
           },
         ],
       },
-      toolNames: new Set(["echo"]),
     };
     const toolCall = await runClaudeRequest({
       ...toolCommon,
@@ -406,6 +403,15 @@ for await (const line of input) {
     });
     assert.equal(afterTool.message.id, "m_fake");
     assert.equal((await readFile(processLog, "utf8")).trim().split("\n").length, 6);
+
+    // Pi のツール一覧に無いツールでも例外にせず、Pi の agent loop にツールの無いことを返させる（2026-11-07 の実測）
+    const unknownTool = await runClaudeRequest({
+      ...common,
+      sessionId: "unknown-tool-session",
+      frames: [{ type: "user", message: { role: "user", content: [{ type: "text", text: "call-tool" }] } }],
+    });
+    assert.equal(unknownTool.message.stop_reason, "tool_use");
+    assert.deepEqual(unknownTool.message.content.map((block) => block.type === "tool_use" && block.name), ["mcp__pi__echo"]);
   } finally {
     await closeClaudeProcesses();
     await rm(root, { recursive: true, force: true });
