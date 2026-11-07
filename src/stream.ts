@@ -7,6 +7,7 @@ import {
   getInitialSystemMessage,
   getSystemMessageText,
   type AssistantMessage,
+  type AssistantMessageEvent,
   type AssistantMessageEventStream,
   type Model,
   type SimpleStreamOptions,
@@ -16,7 +17,7 @@ import {
   type TranscriptContext,
 } from "@earendil-works/pi-ai";
 import { describeUsageCreditsRejection } from "./billing.ts";
-import { runClaudeRequest } from "./claude-cli.ts";
+import { runClaudeRequest, type RunClaudeInput, type RunClaudeOutput } from "./claude-cli.ts";
 import { runTuiRequest, tuiModeEnabled } from "./tui-process.ts";
 import { repairToolHistory } from "./tool-history.ts";
 import { nativeModel, supportsNativeToolChanges } from "./model-catalog.ts";
@@ -328,13 +329,12 @@ export function normalizeError(error: unknown): string {
   return message;
 }
 
-export function streamClaudeCode(
-  model: Model<any>,
-  context: TranscriptContext,
-  options?: SimpleStreamOptions,
-): AssistantMessageEventStream {
-  const stream = createAssistantMessageEventStream();
-  const output: AssistantMessage = {
+type DoneReason = Extract<AssistantMessageEvent, { type: "done" }>["reason"];
+type FailedReason = Extract<AssistantMessageEvent, { type: "error" }>["reason"];
+type PreparedRunInput = Omit<RunClaudeInput, "onEvent">;
+
+function newOutput(model: Model<any>): AssistantMessage {
+  return {
     role: "assistant",
     content: [],
     api: model.api,
@@ -344,94 +344,127 @@ export function streamClaudeCode(
     stopReason: "pending",
     timestamp: Date.now(),
   };
+}
 
-  void (async () => {
-    try {
-      const repairedContext = { ...context, messages: repairToolHistory(context.messages) };
-      const nativeTranscript = prepareNativeTranscript(
-        repairedContext.messages,
-        supportsNativeToolChanges(model.id),
-      );
-      const transcript = nativeTranscript ? repairedContext : collapseSystemMessages(repairedContext);
-      const initialSystem = getInitialSystemMessage(transcript.messages);
-      const systemPrompt = nativeTranscript
-        ? initialSystem
-          ? getSystemMessageText(initialSystem)
-          : ""
-        : getCurrentSystemPrompt(transcript.messages);
-      const tools = getCurrentTools(transcript.messages);
-      const frames = prepareFrames(transcript.messages);
-      const initialUserPrefix = getInitialUserPrefix(transcript.messages);
-      const initialSystemMessages = getInitialSystemMessages(transcript.messages);
-      const preparedTools = prepareTools(tools);
-      const extraBody = buildExtraBody(
-        model.id,
-        nativeTranscript?.requestTools ?? preparedTools.nativeTools,
-        options,
-      );
-      const translator = new EventTranslator(model, output, stream);
+// どの計算が投げても変更前と同じ関数のエラーになるよう、計算はここで済ませてから返す
+function prepareRunInput(
+  model: Model<any>,
+  context: TranscriptContext,
+  options?: SimpleStreamOptions,
+): PreparedRunInput {
+  const repairedContext = { ...context, messages: repairToolHistory(context.messages) };
+  const nativeTranscript = prepareNativeTranscript(
+    repairedContext.messages,
+    supportsNativeToolChanges(model.id),
+  );
+  const transcript = nativeTranscript ? repairedContext : collapseSystemMessages(repairedContext);
+  const initialSystem = getInitialSystemMessage(transcript.messages);
+  const systemPrompt = nativeTranscript
+    ? initialSystem
+      ? getSystemMessageText(initialSystem)
+      : ""
+    : getCurrentSystemPrompt(transcript.messages);
+  const tools = getCurrentTools(transcript.messages);
+  const frames = prepareFrames(transcript.messages);
+  const initialUserPrefix = getInitialUserPrefix(transcript.messages);
+  const initialSystemMessages = getInitialSystemMessages(transcript.messages);
+  const preparedTools = prepareTools(tools);
+  const extraBody = buildExtraBody(
+    model.id,
+    nativeTranscript?.requestTools ?? preparedTools.nativeTools,
+    options,
+  );
+  return {
+    model: nativeModel(model.id),
+    cwd: process.cwd(),
+    frames,
+    systemPrompt,
+    manifest: preparedTools.manifest,
+    extraBody,
+    signal: options?.signal,
+    timeoutMs: options?.timeoutMs,
+    env: options?.env,
+    initialUserPrefix,
+    initialSystemMessages,
+    nativeSystemInjections: nativeTranscript?.systemInjections,
+    betas: nativeTranscript ? [NATIVE_TOOL_CHANGES_BETA] : undefined,
+    sessionId: options?.cacheRetention === "none" ? undefined : options?.sessionId,
+  };
+}
 
-      stream.push({ type: "start", partial: output });
-      // claude -p は entrypoint=sdk-cli として5時間枠を約2倍で数えられるため、既定は対話 TUI（anthropics/claude-code#97074）
-      const runRequest = tuiModeEnabled({ ...process.env, ...options?.env }) ? runTuiRequest : runClaudeRequest;
-      const response = await runRequest({
-        model: nativeModel(model.id),
-        cwd: process.cwd(),
-        frames,
-        systemPrompt,
-        manifest: preparedTools.manifest,
-        extraBody,
-        signal: options?.signal,
-        timeoutMs: options?.timeoutMs,
-        env: options?.env,
-        initialUserPrefix,
-        initialSystemMessages,
-        nativeSystemInjections: nativeTranscript?.systemInjections,
-        betas: nativeTranscript ? [NATIVE_TOOL_CHANGES_BETA] : undefined,
-        sessionId: options?.cacheRetention === "none" ? undefined : options?.sessionId,
-        onEvent: (event) => translator.event(event),
-      });
-      translator.finish(
-        response.message,
-        response.usage,
-        response.initialUserPrefix,
-        response.initialSystemMessages,
-      );
-      output.providerThinkingLevel = options?.reasoning;
-      output.diagnostics = [
-        ...(output.diagnostics ?? []),
-        {
-          type: "claude-code.turn-relay",
-          timestamp: Date.now(),
-          details: response.relay as never,
-        },
-        ...(response.rateLimit
-          ? [
-              {
-                type: "claude-code.rate-limit",
-                timestamp: Date.now(),
-                details: response.rateLimit as never,
-              },
-            ]
-          : []),
-      ];
+function turnDiagnostics(response: RunClaudeOutput): NonNullable<AssistantMessage["diagnostics"]> {
+  return [
+    {
+      type: "claude-code.turn-relay",
+      timestamp: Date.now(),
+      details: response.relay as never,
+    },
+    ...(response.rateLimit
+      ? [
+          {
+            type: "claude-code.rate-limit",
+            timestamp: Date.now(),
+            details: response.rateLimit as never,
+          },
+        ]
+      : []),
+  ];
+}
 
-      if (output.stopReason === "error" || output.stopReason === "aborted" || output.stopReason === "pending") {
-        throw new Error(output.errorMessage || `Claude Code ended with ${output.stopReason}`);
-      }
-      stream.push({ type: "done", reason: output.stopReason, message: output });
-      stream.end();
-    } catch (error) {
-      output.stopReason = options?.signal?.aborted || isAbortError(error) ? "aborted" : "error";
-      output.errorMessage = normalizeError(error);
-      for (const block of output.content) {
-        delete (block as Partial<IndexedBlock>).nativeIndex;
-        delete (block as Partial<IndexedToolCall>).partialJson;
-      }
-      stream.push({ type: "error", reason: output.stopReason, error: output });
-      stream.end();
-    }
-  })();
+function finishedReason(output: AssistantMessage): DoneReason {
+  const reason = output.stopReason;
+  if (reason === "error" || reason === "aborted" || reason === "pending") {
+    throw new Error(output.errorMessage || `Claude Code ended with ${reason}`);
+  }
+  return reason;
+}
 
+function markFailed(output: AssistantMessage, error: unknown, signalAborted: boolean): FailedReason {
+  output.stopReason = signalAborted || isAbortError(error) ? "aborted" : "error";
+  output.errorMessage = normalizeError(error);
+  for (const block of output.content) {
+    delete (block as Partial<IndexedBlock>).nativeIndex;
+    delete (block as Partial<IndexedToolCall>).partialJson;
+  }
+  return output.stopReason;
+}
+
+async function runTurn(
+  model: Model<any>,
+  context: TranscriptContext,
+  options: SimpleStreamOptions | undefined,
+  stream: AssistantMessageEventStream,
+  output: AssistantMessage,
+): Promise<void> {
+  try {
+    const input = prepareRunInput(model, context, options);
+    const translator = new EventTranslator(model, output, stream);
+
+    stream.push({ type: "start", partial: output });
+    // claude -p は entrypoint=sdk-cli として5時間枠を約2倍で数えられるため、既定は対話 TUI（anthropics/claude-code#97074）
+    const runRequest = tuiModeEnabled({ ...process.env, ...options?.env }) ? runTuiRequest : runClaudeRequest;
+    const response = await runRequest({ ...input, onEvent: (event) => translator.event(event) });
+    translator.finish(response.message, response.usage, response.initialUserPrefix, response.initialSystemMessages);
+    output.providerThinkingLevel = options?.reasoning;
+    output.diagnostics = [...(output.diagnostics ?? []), ...turnDiagnostics(response)];
+
+    const reason = finishedReason(output);
+    stream.push({ type: "done", reason, message: output });
+    stream.end();
+  } catch (error) {
+    const reason = markFailed(output, error, options?.signal?.aborted === true);
+    stream.push({ type: "error", reason, error: output });
+    stream.end();
+  }
+}
+
+export function streamClaudeCode(
+  model: Model<any>,
+  context: TranscriptContext,
+  options?: SimpleStreamOptions,
+): AssistantMessageEventStream {
+  const stream = createAssistantMessageEventStream();
+  const output = newOutput(model);
+  void runTurn(model, context, options, stream, output);
   return stream;
 }
