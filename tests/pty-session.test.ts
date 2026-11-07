@@ -4,6 +4,7 @@ import { readFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { performance } from "node:perf_hooks";
 import test from "node:test";
 import { isRetryableAssistantError, type AssistantMessage } from "@earendil-works/pi-ai";
 import { type FallbackHold, promptFallbackReached, TuiSession, type TuiSessionOptions } from "../src/pty-session.ts";
@@ -94,9 +95,11 @@ test("waitIdle は上流から何も届かないまま timeoutMs が過ぎたら
   await withSession({ env: { ...process.env, FAKE_SCREEN: "prompt", FAKE_TURN_MS: "3000" } }, async (session) => {
     await session.ready();
     await session.submit("stuck");
+    // lastActivityAt は実装と同じ壁時計で渡し、経過時間は単調時計で測る（時計の巻き戻しで負にならないように）
     const startedAt = Date.now();
+    const measuredAt = performance.now();
     await assert.rejects(session.waitIdle(500, () => startedAt), /did not finish its turn within 500ms/);
-    assert.ok(Date.now() - startedAt < 2_000);
+    assert.ok(performance.now() - measuredAt < 2_000);
   });
 });
 
@@ -167,9 +170,10 @@ test("反例: 応答中（スピナーの描き直し中）の画面は、受信
   await withSession(withoutTurnLine({ FAKE_SPIN_MS: "50", FAKE_TURN_MS: "1500" }), async (session) => {
     await session.ready();
     await session.submit("busy");
-    const startedAt = Date.now();
+    const startedAt = performance.now();
     await session.waitIdle(5_000, undefined, () => true);
-    assert.ok(Date.now() - startedAt >= 1_500, "fake が入力欄を描き直す前に終えてはならない");
+    const elapsed = Math.round(performance.now() - startedAt);
+    assert.ok(elapsed >= 1_500, `fake が入力欄を描き直す前に終えてはならない (elapsed=${elapsed}, screen=${session.lastScreen()})`);
   });
 });
 
@@ -177,9 +181,9 @@ test("反例: 応答中の表示の後ろに入力欄が描かれていても、
   await withSession(withoutTurnLine({ FAKE_PROMPT_WHILE_BUSY: "1", FAKE_SPIN_MS: "50", FAKE_TURN_MS: "3000" }), async (session) => {
     await session.ready();
     await session.submit("busy");
-    const startedAt = Date.now();
-    await session.waitIdle(5_000, undefined, () => Date.now() - startedAt >= 1_000);
-    assert.ok(Date.now() - startedAt >= 1_300, "受信完了から promptFallbackMs 経つ前に終えてはならない");
+    const startedAt = performance.now();
+    await session.waitIdle(5_000, undefined, () => performance.now() - startedAt >= 1_000);
+    assert.ok(performance.now() - startedAt >= 1_300, "受信完了から promptFallbackMs 経つ前に終えてはならない");
   });
 });
 
@@ -205,9 +209,9 @@ test("終了行を取りこぼしても、受信完了と入力欄が promptFall
   await withSession(withoutTurnLine({ FAKE_TURN_MS: "200" }), async (session) => {
     await session.ready();
     await session.submit("done");
-    const startedAt = Date.now();
+    const startedAt = performance.now();
     await session.waitIdle(5_000, undefined, () => true);
-    const elapsed = Date.now() - startedAt;
+    const elapsed = performance.now() - startedAt;
     assert.ok(elapsed >= 300 && elapsed < 3_000, String(elapsed));
   });
 });
@@ -216,8 +220,8 @@ test("終了行がある通常のターンは、補助判定を待たずに終�
   await withSession({ promptFallbackMs: 2_000 }, async (session) => {
     await session.ready();
     await session.submit("normal");
-    const startedAt = Date.now();
+    const startedAt = performance.now();
     await session.waitIdle(5_000, undefined, () => false);
-    assert.ok(Date.now() - startedAt < 1_500);
+    assert.ok(performance.now() - startedAt < 1_500);
   });
 });
