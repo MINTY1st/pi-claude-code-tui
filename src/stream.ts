@@ -320,6 +320,11 @@ class EventTranslator {
   }
 }
 
+// Pi の signal 以外（セッションの片付け）で止めた要求も、失敗ではなく中断として記録する
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
 export function normalizeError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   const usageCredits = describeUsageCreditsRejection(message);
@@ -425,7 +430,7 @@ export function streamClaudeCode(
       stream.push({ type: "done", reason: output.stopReason, message: output });
       stream.end();
     } catch (error) {
-      output.stopReason = options?.signal?.aborted ? "aborted" : "error";
+      output.stopReason = options?.signal?.aborted || isAbortError(error) ? "aborted" : "error";
       output.errorMessage = normalizeError(error);
       for (const block of output.content) {
         delete (block as Partial<IndexedBlock>).nativeIndex;
