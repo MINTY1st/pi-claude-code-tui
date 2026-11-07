@@ -273,9 +273,27 @@ test("使用量クレジットで払われた応答は billing エラーで止�
 
 test("上流が少しずつ返し続ける長いターンは、ターン全体が timeoutMs を超えても時間切れにしない（2026-11-04 に reviewer が 300 秒で切れた）", async () => {
   await withFixture({}, async (_upstream, input) => {
-    const startedAt = Date.now();
+    const startedAt = performance.now();
     const output = await runTuiRequest({ ...input("長い審査"), timeoutMs: 1_500 });
     assert.deepEqual(output.message.content, [{ type: "text", text: "hello" }]);
-    assert.ok(Date.now() - startedAt > 1_500, "ターン全体は timeoutMs より長くかかっている");
+    assert.ok(performance.now() - startedAt > 1_500, "ターン全体は timeoutMs より長くかかっている");
   }, { eventDelayMs: 400 });
+});
+
+test("終了行を描かない TUI でも、応答を受け取り終えたら補助判定でターンを終える（2026-11-06 に 300 秒待って失敗した）", async () => {
+  await withFixture({}, async (_upstream, input) => {
+    const request = input("終了行なし");
+    const startedAt = Date.now();
+    const output = await runTuiRequest({ ...request, env: { ...request.env, FAKE_TURN_LINE: "0" } });
+    assert.deepEqual(output.message.content, [{ type: "text", text: "hello" }]);
+    assert.ok(Date.now() - startedAt < 10_000);
+  });
+});
+
+test("反例: message_stop が届かない応答は、終了行が無く入力欄が出ていても補助判定で終えず、時間切れにする", async () => {
+  await withFixture({}, async (_upstream, input) => {
+    const request = input("途中で切れる");
+    // 補助判定の待ち時間（3秒）より長い締め切りにして、補助判定が先に働かないことを確かめる
+    await assert.rejects(runTuiRequest({ ...request, timeoutMs: 5_000, env: { ...request.env, FAKE_TURN_LINE: "0" } }), /timed out/);
+  }, { complete: false });
 });

@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { bracketedPaste, createTerminalResponder, plainScreen, type ScreenState, screenState, turnFinished } from "./tui-screen.ts";
+import { bracketedPaste, createTerminalResponder, plainScreen, promptAfterBusy, type ScreenState, screenState, turnFinished } from "./tui-screen.ts";
 
 export interface TuiSessionOptions {
   command: string;
@@ -13,6 +13,8 @@ export interface TuiSessionOptions {
   /** cwd のフォルダ信頼確認に Yes と答えてよいか */
   trustFolder: boolean;
   readyTimeoutMs?: number;
+  /** 終了行を取りこぼしたとき、応答の受信完了と入力欄がこの時間続いたらターンの終わりとみなす */
+  promptFallbackMs?: number;
 }
 
 const COLUMNS = 200;
@@ -27,10 +29,26 @@ const PASTE_SETTLE_MS = 150;
 // /clear を打つとコマンドの候補一覧が描かれ、それが落ち着く前の Enter は候補の選択に使われる
 const SLASH_MENU_MS = 800;
 const SCREEN_KEEP = 128 * 1024;
+// 応答を受け取り終えても、TUI が入力欄を描き直し終えるまでは画面が揺れるため、少し長めに待つ
+const DEFAULT_PROMPT_FALLBACK_MS = 3_000;
 const EXIT_GRACE_MS = 3_000;
 const HELPER_PATH = fileURLToPath(new URL("./pty-helper.py", import.meta.url));
 
 const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+export interface FallbackHold {
+  since?: number;
+}
+
+/** holding が途切れずに holdMs 続いたら真。途切れたら数え直す */
+export function promptFallbackReached(hold: FallbackHold, holding: boolean, now: number, holdMs: number): boolean {
+  if (!holding) {
+    hold.since = undefined;
+    return false;
+  }
+  hold.since ??= now;
+  return now - hold.since >= holdMs;
+}
 
 /** 対話 TUI の Claude Code を PTY で動かし、入力待ちの検知と貼り付けを受け持つ */
 export class TuiSession {
@@ -108,8 +126,14 @@ export class TuiSession {
    * 入力待ちに戻るまで待つ。lastActivityAt を渡すと、締め切りは「最後に上流から届いた時刻 + timeoutMs」になる。
    * 画面はスピナーが毎秒描き直すので、止まっていても変化し続け、進捗の目安にならない
    */
-  async waitIdle(timeoutMs: number, lastActivityAt?: () => number): Promise<void> {
-    await this.poll(timeoutMs, () => "Claude Code timed out: it did not finish its turn", () => turnFinished(plainScreen(this.raw)), undefined, lastActivityAt);
+  async waitIdle(timeoutMs: number, lastActivityAt?: () => number, responseComplete?: () => boolean): Promise<void> {
+    const hold: FallbackHold = {};
+    const holdMs = this.options.promptFallbackMs ?? DEFAULT_PROMPT_FALLBACK_MS;
+    await this.poll(timeoutMs, () => "Claude Code timed out: it did not finish its turn", () => {
+      const plain = plainScreen(this.raw);
+      if (turnFinished(plain)) return true;
+      return promptFallbackReached(hold, responseComplete?.() === true && promptAfterBusy(plain), Date.now(), holdMs);
+    }, undefined, lastActivityAt);
   }
 
   /** ターンごとに TUI 側の履歴を空にし、ツールの往復をまたいで同じプロセスを使い回す */
