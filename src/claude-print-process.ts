@@ -5,9 +5,9 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import type { ChildProcess } from "node:child_process";
-import { incompleteUpstreamMessage } from "./relay-failure.ts";
+import { capturedMessage, completeUsage } from "./response-checks.ts";
 import { TurnRelay } from "./turn-relay.ts";
-import { usageCreditsAllowed, usageCreditsChargeError, type RateLimitInfo } from "./billing.ts";
+import { guardUsageCredits, type RateLimitInfo } from "./billing.ts";
 import type {
   AnthropicStreamEvent,
   NativeFrame,
@@ -419,10 +419,7 @@ export class ClaudeProcess {
 
       let message: NativeMessage | undefined;
       if (this.relay.used) {
-        if (this.relay.status !== 200 || !this.relay.capture.complete || !this.relay.capture.message) {
-          throw new Error(incompleteUpstreamMessage(this.relay));
-        }
-        message = this.relay.capture.message;
+        message = capturedMessage(this.relay);
         sawMessageStop = true;
       } else {
         message = assistants.at(-1);
@@ -442,16 +439,11 @@ export class ClaudeProcess {
         throw new Error(`Claude Code request failed: ${result.subtype ?? "unknown result"}`);
       }
 
-      const usage = message.usage ?? result.usage;
-      if (!usage || typeof usage.input_tokens !== "number" || typeof usage.output_tokens !== "number") {
-        throw new Error("Claude Code response did not include complete token usage");
-      }
+      const usage = completeUsage(message.usage ?? result.usage);
 
       // The response is already charged at this point, but stopping here keeps
       // Pi's agent loop from issuing more requests against usage credits.
-      if (rateLimit?.isUsingOverage === true && !usageCreditsAllowed({ ...process.env, ...input.env })) {
-        throw usageCreditsChargeError(rateLimit);
-      }
+      guardUsageCredits(rateLimit, { ...process.env, ...input.env });
 
       return {
         message,

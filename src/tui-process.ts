@@ -4,13 +4,13 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { registerSessionResourceCleanup } from "@earendil-works/pi-ai";
-import { usageCreditsAllowed, usageCreditsChargeError } from "./billing.ts";
+import { guardUsageCredits } from "./billing.ts";
 import { claudeSettingsJson, processEnvironment, readyClaudeCommand, type RunClaudeInput, type RunClaudeOutput } from "./claude-cli.ts";
 import { envFlagEnabled } from "./env.ts";
 import type { AnthropicStreamEvent, NativeMessage, NativeResult } from "./native-types.ts";
 import { TuiSession } from "./pty-session.ts";
 import { initialContext, replaceTranscript } from "./tui-transcript.ts";
-import { incompleteUpstreamMessage } from "./relay-failure.ts";
+import { capturedMessage, completeUsage } from "./response-checks.ts";
 import { TurnRelay } from "./turn-relay.ts";
 import { abortTuiRequests, trackTuiRequest } from "./tui-lifecycle.ts";
 import { applyTurnBody, launchIdentity, turnBodyOf } from "./turn-body.ts";
@@ -63,8 +63,7 @@ function fingerprint(input: RunClaudeInput, env: Record<string, string>): string
 
 function assertCompleteCapture(relay: TurnRelay): NativeMessage {
   if (!relay.used) throw new Error("Claude Code's interactive mode sent no request for the turn");
-  if (relay.status === 200 && relay.capture.complete && relay.capture.message) return relay.capture.message;
-  throw new Error(incompleteUpstreamMessage(relay));
+  return capturedMessage(relay);
 }
 
 class TuiWorker {
@@ -156,12 +155,9 @@ class TuiWorker {
 
   private output(input: RunClaudeInput): RunClaudeOutput {
     const message = assertCompleteCapture(this.relay);
-    const usage = message.usage;
-    if (!usage || typeof usage.input_tokens !== "number" || typeof usage.output_tokens !== "number") {
-      throw new Error("Claude Code response did not include complete token usage");
-    }
+    const usage = completeUsage(message.usage);
     const rateLimit = this.relay.rateLimit;
-    if (rateLimit?.isUsingOverage === true && !usageCreditsAllowed({ ...process.env, ...input.env })) throw usageCreditsChargeError(rateLimit);
+    guardUsageCredits(rateLimit, { ...process.env, ...input.env });
     const result: NativeResult = { type: "result", subtype: "success", is_error: false, num_turns: 1, usage };
     const initial = this.relay.originalRequestBody ? initialContext(this.relay.originalRequestBody) : undefined;
     return {
