@@ -325,6 +325,21 @@ test("起動時の settings には起動したターンの output_config を残�
   });
 });
 
+test("起動時の settings には thinking のオン・オフによらず showThinkingSummaries: true を書き、CLAUDE_CODE_EXTRA_BODY は extraBody の JSON のまま渡す", async () => {
+  await withFixture({}, async (_upstream, input) => {
+    const settingsDocLog = join(input("").cwd!, "settings-doc.log");
+    const requestEnv = { ...input("").env, FAKE_SETTINGS_DOC_LOG: settingsDocLog };
+    const thinkingOff = { thinking: { type: "disabled" }, context_management: { edits: [] } };
+    await runTuiRequest({ ...input("一つ目"), env: requestEnv, extraBody: thinkingOn("high") });
+    await runTuiRequest({ ...input("二つ目"), env: requestEnv, extraBody: thinkingOff });
+    const launched = (await readFile(settingsDocLog, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as unknown);
+    assert.deepEqual(launched, [
+      { env: { CLAUDE_CODE_EXTRA_BODY: JSON.stringify(thinkingOn("high")) }, showThinkingSummaries: true },
+      { env: { CLAUDE_CODE_EXTRA_BODY: JSON.stringify(thinkingOff) }, showThinkingSummaries: true },
+    ]);
+  });
+});
+
 test("thinking オフのターンは context_management を上流の本文の最上位に書く", async () => {
   await withFixture({}, async (upstream, input) => {
     await runTuiRequest({ ...input("一つ目"), extraBody: { thinking: { type: "disabled" }, context_management: { edits: [] } } });

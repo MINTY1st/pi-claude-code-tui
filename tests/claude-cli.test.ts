@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   cachedClaudeProcessCount,
+  claudeSettingsJson,
   closeClaudeProcesses,
   discoverClaudeModels,
   rewriteInitialRequest,
@@ -140,6 +141,25 @@ test("injects native system history at assistant boundaries", () => {
   );
 });
 
+test("claudeSettingsJson は showThinkingSummaries: true を書き、CLAUDE_CODE_EXTRA_BODY には extraBody の JSON 文字列をそのまま入れる", () => {
+  const extraBody = { tools: [], thinking: { type: "adaptive", display: "summarized" }, output_config: { effort: "high" } };
+  assert.equal(
+    claudeSettingsJson(extraBody),
+    JSON.stringify({ env: { CLAUDE_CODE_EXTRA_BODY: JSON.stringify(extraBody) }, showThinkingSummaries: true }),
+  );
+});
+
+test("境界値: claudeSettingsJson は空の extraBody でも showThinkingSummaries: true を書き、CLAUDE_CODE_EXTRA_BODY は \"{}\" にする", () => {
+  assert.deepEqual(JSON.parse(claudeSettingsJson({})), { env: { CLAUDE_CODE_EXTRA_BODY: "{}" }, showThinkingSummaries: true });
+});
+
+test("反例: claudeSettingsJson は渡された extraBody を書き換えない", () => {
+  const extraBody = { tools: [], thinking: { type: "disabled" }, context_management: { edits: [] } };
+  const before = structuredClone(extraBody);
+  claudeSettingsJson(extraBody);
+  assert.deepEqual(extraBody, before);
+});
+
 test("runs a request through a stream-json Claude executable", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-claude-code-test-"));
   const workingRoot = await realpath(root);
@@ -155,6 +175,8 @@ if (process.argv.includes("auth") && process.argv.includes("status")) {
 }
 if (process.cwd() !== process.env.EXPECTED_CWD) throw new Error(\`wrong cwd: \${process.cwd()}\`);
 if (process.env.PROCESS_LOG) appendFileSync(process.env.PROCESS_LOG, \`\${process.pid}\\n\`);
+const settingsIndex = process.argv.indexOf("--settings");
+if (process.env.SETTINGS_LOG && settingsIndex >= 0) appendFileSync(process.env.SETTINGS_LOG, readFileSync(process.argv[settingsIndex + 1], "utf8") + "\\n");
 const systemIndex = process.argv.indexOf("--system-prompt-file");
 if (systemIndex >= 0 && readFileSync(process.argv[systemIndex + 1], "utf8") !== process.env.EXPECTED_SYSTEM_PROMPT) {
   throw new Error("wrong system prompt");
@@ -241,6 +263,7 @@ for await (const line of input) {
     );
     assert.deepEqual(discovered.map((model) => model.value), ["default", "sonnet"]);
 
+    const settingsLog = join(root, "settings.log");
     const result = await runClaudeRequest({
       model: "sonnet",
       cwd: workingRoot,
@@ -257,6 +280,7 @@ for await (const line of input) {
         PI_CLAUDE_CODE_COMMAND: executable,
         EXPECTED_CWD: workingRoot,
         EXPECTED_SYSTEM_PROMPT: "system",
+        SETTINGS_LOG: settingsLog,
       },
       timeoutMs: 5_000,
       onEvent: (event) => events.push(event.type),
@@ -266,6 +290,10 @@ for await (const line of input) {
     assert.equal(result.usage.input_tokens, 3);
     assert.equal(result.relay.upstreamRequests, 0);
     assert.equal(events.at(-1), "message_stop");
+    assert.deepEqual(
+      (await readFile(settingsLog, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as unknown),
+      [{ env: { CLAUDE_CODE_EXTRA_BODY: JSON.stringify({ tools: [] }) }, showThinkingSummaries: true }],
+    );
 
     const processLog = join(root, "processes.log");
     const common = {

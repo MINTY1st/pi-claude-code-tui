@@ -424,6 +424,12 @@ function conflictingEnvironment(env: Record<string, string>): string[] {
   return conflicts;
 }
 
+// Claude Code 2.1.317 sends the redact-thinking-2026-02-12 beta unless showThinkingSummaries is true, and that beta
+// strips the thinking text even when CLAUDE_CODE_EXTRA_BODY asks for display: "summarized".
+export function claudeSettingsJson(extraBody: Record<string, unknown>): string {
+  return JSON.stringify({ env: { CLAUDE_CODE_EXTRA_BODY: JSON.stringify(extraBody) }, showThinkingSummaries: true });
+}
+
 export function processEnvironment(
   input: Record<string, string | undefined> | undefined,
   extraBody: Record<string, unknown>,
@@ -723,7 +729,7 @@ class ClaudeProcess {
     try {
       await Promise.all([
         writeFile(toolsPath, JSON.stringify(input.manifest), "utf8"),
-        writeFile(settingsPath, JSON.stringify({ env: { CLAUDE_CODE_EXTRA_BODY: JSON.stringify(input.extraBody) } }), "utf8"),
+        writeFile(settingsPath, claudeSettingsJson(input.extraBody), "utf8"),
         writeFile(systemPath, input.systemPrompt, "utf8"),
       ]);
 
