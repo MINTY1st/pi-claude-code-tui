@@ -5,6 +5,7 @@ import {
   modelFromDiscovery,
   nativeModel,
   supportsNativeToolChanges,
+  thinkingOffShape,
 } from "../src/model-catalog.ts";
 
 test("fallback catalog matches Claude Code's selectable model families", () => {
@@ -59,4 +60,48 @@ test("maps discovered aliases to stable canonical Pi model ids", () => {
   });
   assert.equal(future.id, "claude-future-1");
   assert.equal(future.cost.input, 0);
+});
+
+test("thinkingOffShape returns between_tools only for claude-sonnet-5-5", () => {
+  assert.equal(thinkingOffShape("claude-sonnet-5-5"), "between_tools");
+  assert.equal(thinkingOffShape("claude-sonnet-5-5[1m]"), "between_tools");
+  for (const model of [
+    "claude-opus-5-5",
+    "claude-fable-5-1",
+    "claude-haiku-5-5",
+    "claude-sonnet-5",
+    "claude-haiku-4-5-20251001",
+    "claude-future-1",
+    "default",
+  ]) {
+    assert.equal(thinkingOffShape(model), "disabled", model);
+  }
+});
+
+test("thinkingOffShape follows the model that discovery resolves", () => {
+  const sonnet = modelFromDiscovery({
+    value: "sonnet",
+    resolvedModel: "claude-sonnet-5-5",
+    displayName: "Sonnet",
+    description: "Sonnet 5.5 · Efficient for routine tasks",
+    supportsEffort: true,
+    supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+    supportsAdaptiveThinking: true,
+  });
+  assert.equal(sonnet.id, "claude-sonnet-5-5");
+  assert.equal(thinkingOffShape(sonnet.id), "between_tools");
+
+  const defaultInfo = {
+    value: "default",
+    displayName: "Default (recommended)",
+    description: "Default model",
+    supportsAdaptiveThinking: true,
+  };
+  modelFromDiscovery({ ...defaultInfo, resolvedModel: "claude-sonnet-5-5[1m]" });
+  assert.equal(thinkingOffShape("default"), "between_tools");
+  modelFromDiscovery({ ...defaultInfo, resolvedModel: "claude-opus-5-5[1m]" });
+  assert.equal(thinkingOffShape("default"), "disabled");
+  modelFromDiscovery({ ...defaultInfo, resolvedModel: undefined });
+  assert.equal(thinkingOffShape("default"), "disabled");
+  modelFromDiscovery({ ...defaultInfo, resolvedModel: "claude-opus-5-5[1m]" });
 });
