@@ -56,8 +56,9 @@ export function createClaudeCodeProvider() {
             source: status.subscription ? `Claude Code ${status.plan ?? "subscription"}` : "Claude Code CLI",
           };
         },
-        async resolve({ ctx: context, signal }) {
-          signal.throwIfAborted();
+        // 中断済みの signal で投げると、pi-ai の lazyStream が stopReason "error" として記録する。
+        // 投げずに返し、streamClaudeCode に中断として記録させる
+        async resolve({ ctx: context }) {
           const providerEnv = await providerEnvironment(context);
           lastProviderEnv = providerEnv;
           return {

@@ -10,6 +10,8 @@ const TURN_DONE = /✻ [^❯✻\r\n]*? for (?:(?:\d+h(?: \d+m)?(?: \d+s)?|\d+m(?
 const BUSY_MARK = "esc to interrupt";
 // 入力欄の ❯ の後ろは NBSP で描かれる（tmux は画面に描くとき普通の空白に変えるため、tmux 越しでは見えない）
 const PROMPT = /❯[ \u00a0]/;
+// lastMatchIndex は matchAll を使うため g フラグ付きの正規表現が要る。PROMPT（g なし）は .test 用に残す
+const PROMPT_ALL = /❯[ \u00a0]/g;
 
 export type ScreenState = "starting" | "trust-no" | "trust-yes" | "sign-in" | "busy" | "prompt";
 
@@ -64,6 +66,14 @@ export function turnFinished(plain: string): boolean {
   const done = lastMatchIndex(TURN_DONE, plain);
   if (done < 0 || isBusy(plain)) return false;
   return PROMPT.test(plain.slice(done));
+}
+
+// 終了行を取りこぼした画面の補助判定。応答中は入力欄の下のヒント行に「esc to interrupt」が描かれるため、
+// 最後に描かれた入力欄より後ろにその表示が無ければ、入力欄は応答が終わったあとに描き直されたとみなす。
+// 貼り付け直後の画面もこの条件を満たすため、単独では使わず、呼び出し側で上流の完了と画面の静止を併せて確かめる
+export function promptAfterBusy(plain: string): boolean {
+  const prompt = lastMatchIndex(PROMPT_ALL, plain);
+  return prompt >= 0 && prompt > plain.lastIndexOf(BUSY_MARK);
 }
 
 export function bracketedPaste(text: string): string {
