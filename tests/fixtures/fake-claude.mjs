@@ -4,6 +4,7 @@
 // FAKE_TURN_LINE=0（貼り付けたターンの終わりに終了行を描かない）、FAKE_SPIN_MS（応答中にスピナーの記号を描く間隔）、
 // FAKE_PROMPT_WHILE_BUSY=1（応答中の表示の後ろに入力欄を描く。差分描画でヒント行が描き直されない画面をまねる）
 // FAKE_SETTINGS_LOG（起動時に --settings の CLAUDE_CODE_EXTRA_BODY を1行ずつ書き出すファイル）、
+// FAKE_SETTINGS_DOC_LOG（起動時に読んだ --settings のファイル全体を JSON で1行ずつ書き出すファイル）、
 // FAKE_DROP_BODY_KEYS（CLAUDE_CODE_EXTRA_BODY を混ぜた後に本文から消すキー。カンマ区切り）
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 
@@ -21,9 +22,11 @@ if (mcpIndex > 0) {
 appendFileSync(process.env.FAKE_LOG ?? "/dev/null", JSON.stringify("started") + "\n");
 // 本物は起動時に読んだ CLAUDE_CODE_EXTRA_BODY を本文の最上位へ浅く混ぜる（2.1.317 の静的読解）
 const settingsIndex = process.argv.indexOf("--settings");
-const extraBodyText = settingsIndex > 0 ? JSON.parse(readFileSync(process.argv[settingsIndex + 1], "utf8")).env?.CLAUDE_CODE_EXTRA_BODY : undefined;
+const settings = settingsIndex > 0 ? JSON.parse(readFileSync(process.argv[settingsIndex + 1], "utf8")) : undefined;
+const extraBodyText = settings?.env?.CLAUDE_CODE_EXTRA_BODY;
 const extraBody = extraBodyText ? JSON.parse(extraBodyText) : {};
 if (process.env.FAKE_SETTINGS_LOG) appendFileSync(process.env.FAKE_SETTINGS_LOG, JSON.stringify(extraBodyText ?? null) + "\n");
+if (process.env.FAKE_SETTINGS_DOC_LOG) appendFileSync(process.env.FAKE_SETTINGS_DOC_LOG, JSON.stringify(settings ?? null) + "\n");
 
 // /clear 直後の本物が送る本文の形（2.1.316 の実測）。中身は relay が Pi の会話に差し替える
 async function requestUpstream(pasted) {
