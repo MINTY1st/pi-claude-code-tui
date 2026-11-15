@@ -3,14 +3,10 @@ import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import {
-  cachedClaudeProcessCount,
-  claudeSettingsJson,
-  closeClaudeProcesses,
-  discoverClaudeModels,
-  rewriteInitialRequest,
-  runClaudeRequest,
-} from "../src/claude-cli.ts";
+import { claudeSettingsJson } from "../src/claude/claude-spawn.ts";
+import { discoverClaudeModels } from "../src/claude/claude-models.ts";
+import { cachedClaudeProcessCount, closeClaudeProcesses, runClaudeRequest } from "../src/print/claude-print-cache.ts";
+import { rewriteInitialRequest } from "../src/request/initial-request.ts";
 import { createClaudeCodeProvider } from "../src/provider.ts";
 
 test("stabilizes Claude Code's native replay reminders and cache breakpoint", () => {

@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import * as http from "node:http";
 import test from "node:test";
 import { isRetryableAssistantError, type AssistantMessage } from "@earendil-works/pi-ai";
-import type { AnthropicStreamEvent } from "../src/native-types.ts";
-import { incompleteUpstreamMessage } from "../src/relay-failure.ts";
+import type { AnthropicStreamEvent } from "../src/shared/native-types.ts";
+import { incompleteUpstreamMessage } from "../src/relay/relay-failure.ts";
 import { normalizeError } from "../src/stream.ts";
-import { TurnRelay } from "../src/turn-relay.ts";
+import { TurnRelay } from "../src/relay/turn-relay.ts";
 
 type Handler = (request: http.IncomingMessage, response: http.ServerResponse) => void | Promise<void>;
 

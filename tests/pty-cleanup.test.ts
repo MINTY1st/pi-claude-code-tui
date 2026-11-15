@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { TuiSession } from "../src/pty-session.ts";
+import { TuiSession } from "../src/tui/pty-session.ts";
 
 const stubbornClaude = fileURLToPath(new URL("./fixtures/stubborn-claude.mjs", import.meta.url));
 const running = (pid: number): boolean => {

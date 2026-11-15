@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bracketedPaste, createTerminalResponder, plainScreen, promptAfterBusy, screenState, terminalReplies, turnFinished } from "../src/tui-screen.ts";
+import { bracketedPaste, createTerminalResponder, plainScreen, promptAfterBusy, screenState, terminalReplies, turnFinished } from "../src/tui/tui-screen.ts";
 
 test("plainScreen は CSI・OSC のエスケープを空白に置き換える", () => {
   assert.equal(plainScreen("\x1b[2J\x1b[1;1H❯ \x1b]0;title\x07ok"), "  ❯  ok");
@@ -87,7 +87,7 @@ test("bracketedPaste は文字列を貼り付けの開始と終了で囲む", ()
 });
 
 // tests/tui-screen.test.ts の末尾に追加する部分。先頭の import に promptAfterBusy を足す:
-// import { bracketedPaste, createTerminalResponder, plainScreen, promptAfterBusy, screenState, terminalReplies, turnFinished } from "../src/tui-screen.ts";
+// import { bracketedPaste, createTerminalResponder, plainScreen, promptAfterBusy, screenState, terminalReplies, turnFinished } from "../src/tui/tui-screen.ts";
 
 // 2026-11-05〜06 にタイムアウトした画面（Pi のセッション記録の errorMessage）から終了行だけを除いたもの。
 // 応答中の欄の下には「esc to interrupt」が、終わったあとは「? for shortcuts」が描かれる

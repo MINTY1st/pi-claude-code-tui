@@ -1,4 +1,4 @@
-import type { RateLimitInfo } from "./billing.ts";
+import type { RateLimitInfo } from "../shared/billing.ts";
 
 // 対話 TUI には -p の rate_limit_event が無いため、relay が受けた上流のヘッダーから同じ情報を作る。
 // 変換の式は Claude Code 2.1.316 がヘッダーから rate_limit_info を作る処理に合わせている

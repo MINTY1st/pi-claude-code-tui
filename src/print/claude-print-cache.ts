@@ -3,9 +3,8 @@ import {
   ClaudeProcess,
   launchPlan,
   type ClaudeLaunchPlan,
-  type RunClaudeInput,
-  type RunClaudeOutput,
 } from "./claude-print-process.ts";
+import type { RunClaudeInput, RunClaudeOutput } from "../request/run-types.ts";
 
 const MAX_CACHED_CLAUDE_PROCESSES = 2;
 

@@ -4,15 +4,15 @@ Claude Code is started with `CLAUDE_CODE_MAX_RETRIES=0`, and the relay rejects a
 
 ## Response checks
 
-After a turn, the captured response must pass the checks in `src/response-checks.ts` (shared by both paths):
+After a turn, the captured response must pass the checks in `src/relay/response-checks.ts` (shared by both paths):
 
 - **Completeness** — HTTP 200 and a complete capture (`message_stop` received). Otherwise the call fails with `Incomplete Claude Code upstream response (…)`.
 - **Usage** — `input_tokens` and `output_tokens` must be numbers.
-- **Billing guard** — if the response was charged to usage credits instead of plan limits (`isUsingOverage`), the call fails unless `PI_CLAUDE_CODE_ALLOW_USAGE_CREDITS=1` (`src/billing.ts`).
+- **Billing guard** — if the response was charged to usage credits instead of plan limits (`isUsingOverage`), the call fails unless `PI_CLAUDE_CODE_ALLOW_USAGE_CREDITS=1` (`src/shared/billing.ts`).
 
 ## The final error message
 
-`incompleteUpstreamMessage` (`src/relay-failure.ts`) builds the message from:
+`incompleteUpstreamMessage` (`src/relay/relay-failure.ts`) builds the message from:
 
 - the HTTP status and whether the capture was complete,
 - the relay failure, including the error's `name`, `code` and `message` (and the inner errors of an `AggregateError`),

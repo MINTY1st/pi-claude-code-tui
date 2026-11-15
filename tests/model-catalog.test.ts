@@ -6,7 +6,7 @@ import {
   nativeModel,
   supportsNativeToolChanges,
   thinkingOffShape,
-} from "../src/model-catalog.ts";
+} from "../src/shared/model-catalog.ts";
 
 test("fallback catalog matches Claude Code's selectable model families", () => {
   assert.deepEqual(

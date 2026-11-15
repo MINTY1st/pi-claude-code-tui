@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { withoutForeignThinking } from "../src/thinking-replay.ts";
+import { withoutForeignThinking } from "../src/request/thinking-replay.ts";
 
 function withThinking(api: string): AssistantMessage {
   return {

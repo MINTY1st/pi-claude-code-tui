@@ -22,7 +22,7 @@ Anything else that Claude Code only reads at startup must be part of the fingerp
 
 ## Per-turn values
 
-`claude/auto` changes the effort level often (about one in five continuation turns in one measurement). To avoid a restart for each change, `output_config` and `context_management` are handled per turn (`src/turn-body.ts`):
+`claude/auto` changes the effort level often (about one in five continuation turns in one measurement). To avoid a restart for each change, `output_config` and `context_management` are handled per turn (`src/tui/turn-body.ts`):
 
 - Their **values** are left out of the fingerprint.
 - For every turn, the relay writes the current values into the top level of the request body, after the transcript has been replaced. A key is replaced as a whole and only if Claude Code's body already contains it.
@@ -34,4 +34,4 @@ These choices were verified against the real API: with per-turn values, the upst
 
 ## Print mode
 
-The `claude -p` path has its own cache (`src/claude-print-cache.ts`): up to two processes, each kept for at most 5 minutes.
+The `claude -p` path has its own cache (`src/print/claude-print-cache.ts`): up to two processes, each kept for at most 5 minutes.

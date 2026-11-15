@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { isRetryableAssistantError, type AssistantMessage } from "@earendil-works/pi-ai";
-import { ALLOW_USAGE_CREDITS_ENV, guardUsageCredits, usageCreditsChargeError, type RateLimitInfo } from "../src/billing.ts";
-import type { NativeMessage, NativeUsage } from "../src/native-types.ts";
-import { incompleteUpstreamMessage, relayFailure } from "../src/relay-failure.ts";
-import { capturedMessage, completeUsage, type CapturedOutcome } from "../src/response-checks.ts";
+import { ALLOW_USAGE_CREDITS_ENV, guardUsageCredits, usageCreditsChargeError, type RateLimitInfo } from "../src/shared/billing.ts";
+import type { NativeMessage, NativeUsage } from "../src/shared/native-types.ts";
+import { incompleteUpstreamMessage, relayFailure } from "../src/relay/relay-failure.ts";
+import { capturedMessage, completeUsage, type CapturedOutcome } from "../src/relay/response-checks.ts";
 
 const message: NativeMessage = { role: "assistant", content: [{ type: "text", text: "ok" }], stop_reason: "end_turn" };
 

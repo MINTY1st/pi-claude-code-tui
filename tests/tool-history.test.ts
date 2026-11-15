@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AssistantMessage, Message, ToolCall } from "@earendil-works/pi-ai";
-import { repairToolHistory } from "../src/tool-history.ts";
+import { repairToolHistory } from "../src/request/tool-history.ts";
 
 function assistant(stopReason: AssistantMessage["stopReason"], calls: string[]): AssistantMessage {
   return {

@@ -1,7 +1,7 @@
-import { type NativeRequestMessage, cacheBreakpointCount, setReplayCacheBreakpoints, withoutCacheControl } from "./cache-breakpoints.ts";
-import type { NativeFrame } from "./native-types.ts";
-import { injectNativeSystemMessages } from "./claude-cli.ts";
-import type { NativeSystemInjection } from "./transcript.ts";
+import { type NativeRequestMessage, cacheBreakpointCount, setReplayCacheBreakpoints, withoutCacheControl } from "../request/cache-breakpoints.ts";
+import type { NativeFrame } from "../shared/native-types.ts";
+import { injectNativeSystemMessages } from "../request/initial-request.ts";
+import type { NativeSystemInjection } from "../request/transcript.ts";
 
 const REMINDER_PREFIX = "<system-reminder>";
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyTurnBody, launchIdentity, turnBodyOf } from "../src/turn-body.ts";
+import { applyTurnBody, launchIdentity, turnBodyOf } from "../src/tui/turn-body.ts";
 
 const thinkingOn = { tools: [], max_tokens: 4096, thinking: { type: "adaptive", display: "summarized" }, output_config: { effort: "high" } };
 const thinkingOff = { tools: [], thinking: { type: "disabled" }, context_management: { edits: [] } };

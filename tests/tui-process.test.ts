@@ -5,10 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { closeTuiProcesses, oldestIdleSession, runTuiRequest, tuiArgs, tuiEnvironment, tuiModeEnabled } from "../src/tui-process.ts";
-import type { RunClaudeInput } from "../src/claude-cli.ts";
-import type { NativeContentBlock } from "../src/native-types.ts";
-import { TuiSession } from "../src/pty-session.ts";
+import { closeTuiProcesses, oldestIdleSession, runTuiRequest, tuiArgs, tuiEnvironment, tuiModeEnabled } from "../src/tui/tui-process.ts";
+import type { RunClaudeInput } from "../src/request/run-types.ts";
+import type { NativeContentBlock } from "../src/shared/native-types.ts";
+import { TuiSession } from "../src/tui/pty-session.ts";
 
 const fakeClaude = fileURLToPath(new URL("./fixtures/fake-claude.mjs", import.meta.url));
 

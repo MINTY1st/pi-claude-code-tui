@@ -1,5 +1,5 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { API_ID } from "./model-catalog.ts";
+import { API_ID } from "../shared/model-catalog.ts";
 
 // Only Anthropic-issued thinking signatures can be replayed; other providers
 // (OpenAI responses, OpenAI-compatible proxies) sign with their own format.

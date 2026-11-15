@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
-const inertMcp = fileURLToPath(new URL("../src/inert-mcp.mjs", import.meta.url));
+const inertMcp = fileURLToPath(new URL("../src/claude/inert-mcp.mjs", import.meta.url));
 
 async function exchange(args: string[], requests: object[]): Promise<object[]> {
   const child = spawn(process.execPath, [inertMcp, ...args], { stdio: ["pipe", "pipe", "inherit"] });

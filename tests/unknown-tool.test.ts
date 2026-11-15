@@ -4,12 +4,12 @@ import { fileURLToPath } from "node:url";
 import test, { type TestContext } from "node:test";
 import { agentLoop, type AgentContext, type AgentTool } from "@earendil-works/pi-agent-core";
 import { normalizeContext, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
-import { CLAUDE_CODE_MODELS } from "../src/model-catalog.ts";
-import type { NativeContentBlock } from "../src/native-types.ts";
+import { CLAUDE_CODE_MODELS } from "../src/shared/model-catalog.ts";
+import type { NativeContentBlock } from "../src/shared/native-types.ts";
 import { streamClaudeCode } from "../src/stream.ts";
-import { piToolName } from "../src/tool-config.ts";
-import { closeTuiProcesses } from "../src/tui-process.ts";
-import { TurnRelay } from "../src/turn-relay.ts";
+import { piToolName } from "../src/request/tool-config.ts";
+import { closeTuiProcesses } from "../src/tui/tui-process.ts";
+import { TurnRelay } from "../src/relay/turn-relay.ts";
 
 const fakeClaude = fileURLToPath(new URL("./fixtures/fake-claude.mjs", import.meta.url));
 const model = CLAUDE_CODE_MODELS[0] as Model<any>;

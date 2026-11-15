@@ -1,6 +1,6 @@
 # Turn lifecycle (interactive TUI)
 
-This describes how one Pi call runs through the interactive TUI path (`src/tui-process.ts`, `src/pty-session.ts`, `src/tui-screen.ts`).
+This describes how one Pi call runs through the interactive TUI path (`src/tui/tui-process.ts`, `src/tui/pty-session.ts`, `src/tui/tui-screen.ts`).
 
 ## Steps
 
