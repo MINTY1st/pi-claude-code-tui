@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { performance } from "node:perf_hooks";
 import test from "node:test";
 import { isRetryableAssistantError, type AssistantMessage } from "@earendil-works/pi-ai";
-import { type FallbackHold, promptFallbackReached, TuiSession, type TuiSessionOptions } from "../src/pty-session.ts";
+import { type FallbackHold, promptFallbackReached, TuiSession, type TuiSessionOptions } from "../src/tui/pty-session.ts";
 
 const fakeClaude = fileURLToPath(new URL("./fixtures/fake-claude.mjs", import.meta.url));
 
@@ -124,7 +124,7 @@ test("clear で /clear を送り、入力待ちに戻るまで待つ", async () 
 });
 
 test("Python が無い環境でも未処理の例外にせず、ready のエラーとして返して close できる", () => {
-  const modulePath = new URL("../src/pty-session.ts", import.meta.url).href;
+  const modulePath = new URL("../src/tui/pty-session.ts", import.meta.url).href;
   const script = `
     import { TuiSession } from ${JSON.stringify(modulePath)};
     const session = TuiSession.start({ command: "claude", args: [], cwd: ${JSON.stringify(tmpdir())}, env: { PATH: "" }, listedMarker: "", trustFolder: false, readyTimeoutMs: 300 });

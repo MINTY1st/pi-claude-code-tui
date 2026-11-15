@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { rateLimitFromHeaders } from "../src/rate-limit-headers.ts";
+import { rateLimitFromHeaders } from "../src/relay/rate-limit-headers.ts";
 
 const H = "anthropic-ratelimit-unified-";
 

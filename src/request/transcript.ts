@@ -12,7 +12,7 @@ import { nativeSystemBlocks, prepareTools, sanitizeSurrogates, TOOL_PREFIX } fro
 export { buildExtraBody, normalizeInputSchema, piToolName, prepareTools, TOOL_PREFIX, type ToolManifestEntry } from "./tool-config.ts";
 import { normalizeFrameToolIds } from "./tool-call-ids.ts";
 import { withoutForeignThinking } from "./thinking-replay.ts";
-import type { NativeContentBlock, NativeFrame, NativeMessage } from "./native-types.ts";
+import type { NativeContentBlock, NativeFrame, NativeMessage } from "../shared/native-types.ts";
 
 export const NATIVE_REPLAY_DIAGNOSTIC = "claude-code.native-assistant.v1";
 export const NATIVE_TOOL_CHANGES_BETA = "mid-conversation-tool-changes-2026-07-01";

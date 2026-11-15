@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { isRetryableAssistantError, type AssistantMessage } from "@earendil-works/pi-ai";
-import { ALLOW_USAGE_CREDITS_ENV, describeUsageCreditsRejection, usageCreditsAllowed } from "../src/billing.ts";
-import { closeClaudeProcesses, runClaudeRequest } from "../src/claude-cli.ts";
+import { ALLOW_USAGE_CREDITS_ENV, describeUsageCreditsRejection, usageCreditsAllowed } from "../src/shared/billing.ts";
+import { closeClaudeProcesses, runClaudeRequest } from "../src/print/claude-print-cache.ts";
 import { normalizeError } from "../src/stream.ts";
 
 function failedMessage(errorMessage: string): AssistantMessage {

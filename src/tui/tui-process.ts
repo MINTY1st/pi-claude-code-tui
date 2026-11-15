@@ -4,14 +4,16 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { registerSessionResourceCleanup } from "@earendil-works/pi-ai";
-import { guardUsageCredits } from "./billing.ts";
-import { claudeSettingsJson, processEnvironment, readyClaudeCommand, type RunClaudeInput, type RunClaudeOutput } from "./claude-cli.ts";
-import { envFlagEnabled } from "./env.ts";
-import type { AnthropicStreamEvent, NativeMessage, NativeResult } from "./native-types.ts";
+import { guardUsageCredits } from "../shared/billing.ts";
+import { claudeSettingsJson, processEnvironment } from "../claude/claude-spawn.ts";
+import { readyClaudeCommand } from "../claude/claude-executable.ts";
+import type { RunClaudeInput, RunClaudeOutput } from "../request/run-types.ts";
+import { envFlagEnabled } from "../shared/env.ts";
+import type { AnthropicStreamEvent, NativeMessage, NativeResult } from "../shared/native-types.ts";
 import { TuiSession } from "./pty-session.ts";
 import { initialContext, replaceTranscript } from "./tui-transcript.ts";
-import { capturedMessage, completeUsage } from "./response-checks.ts";
-import { TurnRelay } from "./turn-relay.ts";
+import { capturedMessage, completeUsage } from "../relay/response-checks.ts";
+import { TurnRelay } from "../relay/turn-relay.ts";
 import { abortTuiRequests, trackTuiRequest } from "./tui-lifecycle.ts";
 import { applyTurnBody, launchIdentity, turnBodyOf } from "./turn-body.ts";
 
@@ -27,7 +29,7 @@ const IDLE_LIFETIME_MS = 15 * 60 * 1_000;
 const MAX_CACHED = 2;
 // 親が Claude Code や SDK だとこれらが引き継がれ、entrypoint が cli でなくなるか、セッションの記録が混ざる
 const PARENT_SESSION_VARIABLES = ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_EXECPATH", "CLAUDE_PID"];
-const INERT_MCP_PATH = fileURLToPath(new URL("./inert-mcp.mjs", import.meta.url));
+const INERT_MCP_PATH = fileURLToPath(new URL("../claude/inert-mcp.mjs", import.meta.url));
 
 /** 既定は対話 TUI。PI_CLAUDE_CODE_TUI=0 で従来の claude -p に戻す */
 export function tuiModeEnabled(env: Record<string, string | undefined>): boolean {

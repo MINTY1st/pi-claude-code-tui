@@ -1,5 +1,5 @@
 import { createInterface } from "node:readline";
-import type { DiscoveredClaudeModel } from "./model-catalog.ts";
+import type { DiscoveredClaudeModel } from "../shared/model-catalog.ts";
 import { childExit, killProcessTree, processEnvironment, spawnCommand } from "./claude-spawn.ts";
 import { INSTALL_HINT, resolveClaudeExecutable } from "./claude-executable.ts";
 

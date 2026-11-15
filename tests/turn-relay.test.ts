@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import * as http from "node:http";
 import test from "node:test";
-import { TurnRelay } from "../src/turn-relay.ts";
+import { TurnRelay } from "../src/relay/turn-relay.ts";
 
 function listen(server: http.Server): Promise<number> {
   return new Promise((resolve) => {

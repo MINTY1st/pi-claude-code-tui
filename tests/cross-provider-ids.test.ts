@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
-import { prepareFrames } from "../src/transcript.ts";
+import { prepareFrames } from "../src/request/transcript.ts";
 
 function history(ids: string[]): Message[] {
   return [

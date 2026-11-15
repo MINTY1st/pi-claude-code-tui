@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { NativeFrame } from "./native-types.ts";
+import type { NativeFrame } from "../shared/native-types.ts";
 
 const VALID_ID = /^[a-zA-Z0-9_-]{1,64}$/;
 

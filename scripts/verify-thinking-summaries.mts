@@ -64,8 +64,8 @@ function shapeOf(content: Block[]): Pick<RunRecord, "blockTypes" | "thinking" | 
 
 async function run(root: string, outPath: string, count: number): Promise<boolean> {
   if (!Number.isInteger(count) || count < 1 || count > MAX_COUNT) throw new Error(`count must be 1..${MAX_COUNT}`);
-  const tui = await import(pathToFileURL(join(root, "src/tui-process.ts")).href);
-  const config = await import(pathToFileURL(join(root, "src/tool-config.ts")).href);
+  const tui = await import(pathToFileURL(join(root, "src/tui/tui-process.ts")).href);
+  const config = await import(pathToFileURL(join(root, "src/request/tool-config.ts")).href);
   const cwd = join(tmpdir(), "pi-verify-thinking-summaries");
   mkdirSync(cwd, { recursive: true });
   const records: Recorded[] = [];

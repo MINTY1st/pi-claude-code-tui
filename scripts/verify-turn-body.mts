@@ -60,8 +60,8 @@ function descendantSettingsPaths(): string[] {
 
 async function run(root: string, outPath: string, model: string): Promise<boolean> {
   if (!MODELS.includes(model)) throw new Error(`model must be one of ${MODELS.join(", ")}`);
-  const tui = await import(pathToFileURL(join(root, "src/tui-process.ts")).href);
-  const config = await import(pathToFileURL(join(root, "src/tool-config.ts")).href);
+  const tui = await import(pathToFileURL(join(root, "src/tui/tui-process.ts")).href);
+  const config = await import(pathToFileURL(join(root, "src/request/tool-config.ts")).href);
   const cwd = join(tmpdir(), "pi-verify-turn-body");
   mkdirSync(cwd, { recursive: true });
   const records: Recorded[] = [];

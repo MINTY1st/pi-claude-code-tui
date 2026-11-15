@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { envFlagEnabled } from "./env.ts";
+import { envFlagEnabled } from "../shared/env.ts";
 
 export function withConfigDirectory(env: Record<string, string | undefined>): Record<string, string> {
   const output: Record<string, string> = {};

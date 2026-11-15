@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { getClaudeStatus } from "./claude-cli.ts";
+import { getClaudeStatus } from "./claude/claude-executable.ts";
 import { claudeCodeEnv, createClaudeCodeProvider } from "./provider.ts";
 
 export default function claudeCodeExtension(pi: ExtensionAPI): void {

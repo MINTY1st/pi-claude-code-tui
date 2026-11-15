@@ -5,62 +5,20 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import type { ChildProcess } from "node:child_process";
-import { capturedMessage, completeUsage } from "./response-checks.ts";
-import { TurnRelay } from "./turn-relay.ts";
-import { guardUsageCredits, type RateLimitInfo } from "./billing.ts";
+import { capturedMessage, completeUsage } from "../relay/response-checks.ts";
+import { TurnRelay } from "../relay/turn-relay.ts";
+import { guardUsageCredits, type RateLimitInfo } from "../shared/billing.ts";
 import type {
   AnthropicStreamEvent,
   NativeFrame,
   NativeMessage,
   NativeOutputEvent,
   NativeResult,
-  NativeUsage,
-} from "./native-types.ts";
-import type { NativeSystemInjection, ToolManifestEntry } from "./transcript.ts";
-import { childExit, claudeSettingsJson, killProcessTree, processEnvironment, spawnCommand } from "./claude-spawn.ts";
-import { configuredCommand, readyClaudeCommand } from "./claude-executable.ts";
-import { deriveInitialSystemMessages, deriveInitialUserPrefix, rewriteInitialRequest } from "./initial-request.ts";
-
-export interface RunClaudeInput {
-  model: string;
-  /** Working directory exposed to Claude and used for Pi tool paths. */
-  cwd?: string;
-  frames: NativeFrame[];
-  systemPrompt: string;
-  manifest: ToolManifestEntry[];
-  extraBody: Record<string, unknown>;
-  signal?: AbortSignal;
-  timeoutMs?: number;
-  env?: Record<string, string | undefined>;
-  upstreamUrl?: string;
-  /** Native blocks Claude Code injected ahead of the first canonical user message. */
-  initialUserPrefix?: unknown[];
-  /** Native system messages Claude Code injected immediately after that user message. */
-  initialSystemMessages?: unknown[];
-  /** Pi system/tool deltas to restore at their historical assistant boundaries. */
-  nativeSystemInjections?: NativeSystemInjection[];
-  /** Beta features appended to Claude Code's own request header by the turn relay. */
-  betas?: string[];
-  onEvent?: (event: AnthropicStreamEvent) => void;
-  /** Pi session whose linear continuation may reuse a warm Claude process. */
-  sessionId?: string;
-}
-
-export interface RunClaudeOutput {
-  message: NativeMessage;
-  result: NativeResult;
-  usage: NativeUsage;
-  exitCode: number;
-  relay: {
-    upstreamRequests: number;
-    blockedRequests: number;
-    requestId?: string;
-  };
-  initialUserPrefix?: unknown[];
-  initialSystemMessages?: unknown[];
-  /** Latest plan-limit status Claude Code reported for this turn. */
-  rateLimit?: RateLimitInfo;
-}
+} from "../shared/native-types.ts";
+import type { RunClaudeInput, RunClaudeOutput } from "../request/run-types.ts";
+import { childExit, claudeSettingsJson, killProcessTree, processEnvironment, spawnCommand } from "../claude/claude-spawn.ts";
+import { configuredCommand, readyClaudeCommand } from "../claude/claude-executable.ts";
+import { deriveInitialSystemMessages, deriveInitialUserPrefix, rewriteInitialRequest } from "../request/initial-request.ts";
 
 class AsyncQueue<T> {
   private readonly values: T[] = [];
@@ -215,7 +173,7 @@ export class ClaudeProcess {
     const toolsPath = join(root, "tools.json");
     const settingsPath = join(root, "settings.json");
     const systemPath = join(root, "system.md");
-    const inertMcpPath = fileURLToPath(new URL("./inert-mcp.mjs", import.meta.url));
+    const inertMcpPath = fileURLToPath(new URL("../claude/inert-mcp.mjs", import.meta.url));
     let child: ChildProcess | undefined;
     let relay: TurnRelay | undefined;
 

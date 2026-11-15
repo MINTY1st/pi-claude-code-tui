@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import test, { type TestContext } from "node:test";
 import { lazyStream, normalizeContext, type Model } from "@earendil-works/pi-ai";
-import { CLAUDE_CODE_MODELS } from "../src/model-catalog.ts";
+import { CLAUDE_CODE_MODELS } from "../src/shared/model-catalog.ts";
 import { createClaudeCodeProvider } from "../src/provider.ts";
-import { TuiSession } from "../src/pty-session.ts";
+import { TuiSession } from "../src/tui/pty-session.ts";
 import { streamClaudeCode } from "../src/stream.ts";
-import { closeTuiProcesses } from "../src/tui-process.ts";
+import { closeTuiProcesses } from "../src/tui/tui-process.ts";
 
 const fakeClaude = fileURLToPath(new URL("./fixtures/fake-claude.mjs", import.meta.url));
 const model = CLAUDE_CODE_MODELS[0] as Model<any>;

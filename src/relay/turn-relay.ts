@@ -2,8 +2,8 @@ import * as http from "node:http";
 import * as https from "node:https";
 import { randomBytes } from "node:crypto";
 import type { AddressInfo } from "node:net";
-import type { AnthropicStreamEvent, NativeContentBlock, NativeMessage } from "./native-types.ts";
-import type { RateLimitInfo } from "./billing.ts";
+import type { AnthropicStreamEvent, NativeContentBlock, NativeMessage } from "../shared/native-types.ts";
+import type { RateLimitInfo } from "../shared/billing.ts";
 import { rateLimitFromHeaders } from "./rate-limit-headers.ts";
 import { CaptureError, relayFailure, type RelayFailure, type RelayFailureKind } from "./relay-failure.ts";
 

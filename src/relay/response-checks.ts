@@ -1,4 +1,4 @@
-import type { NativeMessage, NativeUsage } from "./native-types.ts";
+import type { NativeMessage, NativeUsage } from "../shared/native-types.ts";
 import { incompleteUpstreamMessage, type RelayOutcome } from "./relay-failure.ts";
 
 /** TurnRelay が満たす形。テストで relay を立てずに偽の結果を渡すため、クラスではなく形で受ける */

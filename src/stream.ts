@@ -16,12 +16,13 @@ import {
   type ToolCall,
   type TranscriptContext,
 } from "@earendil-works/pi-ai";
-import { describeUsageCreditsRejection } from "./billing.ts";
-import { runClaudeRequest, type RunClaudeInput, type RunClaudeOutput } from "./claude-cli.ts";
-import { runTuiRequest, tuiModeEnabled } from "./tui-process.ts";
-import { repairToolHistory } from "./tool-history.ts";
-import { nativeModel, supportsNativeToolChanges } from "./model-catalog.ts";
-import type { AnthropicStreamEvent, NativeContentBlock, NativeMessage, NativeUsage } from "./native-types.ts";
+import { describeUsageCreditsRejection } from "./shared/billing.ts";
+import { runClaudeRequest } from "./print/claude-print-cache.ts";
+import type { RunClaudeInput, RunClaudeOutput } from "./request/run-types.ts";
+import { runTuiRequest, tuiModeEnabled } from "./tui/tui-process.ts";
+import { repairToolHistory } from "./request/tool-history.ts";
+import { nativeModel, supportsNativeToolChanges } from "./shared/model-catalog.ts";
+import type { AnthropicStreamEvent, NativeContentBlock, NativeMessage, NativeUsage } from "./shared/native-types.ts";
 import {
   buildExtraBody,
   getInitialSystemMessages,
@@ -32,7 +33,7 @@ import {
   prepareFrames,
   prepareNativeTranscript,
   prepareTools,
-} from "./transcript.ts";
+} from "./request/transcript.ts";
 
 interface IndexedText {
   type: "text";

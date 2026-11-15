@@ -1,5 +1,5 @@
 import { renderSystemMessageUpdate, type SimpleStreamOptions, type SystemMessage, type Tool } from "@earendil-works/pi-ai";
-import { supportsAdaptiveThinking, thinkingOffShape } from "./model-catalog.ts";
+import { supportsAdaptiveThinking, thinkingOffShape } from "../shared/model-catalog.ts";
 
 export const TOOL_PREFIX = "mcp__pi__";
 

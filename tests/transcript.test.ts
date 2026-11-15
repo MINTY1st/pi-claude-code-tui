@@ -11,7 +11,7 @@ import {
   prepareNativeTranscript,
   prepareTools,
   TOOL_PREFIX,
-} from "../src/transcript.ts";
+} from "../src/request/transcript.ts";
 
 const usage = {
   input: 1,

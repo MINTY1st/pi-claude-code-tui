@@ -13,11 +13,11 @@ pi-claude-code-tui is a Pi provider that sends model calls through Claude Code, 
 
 ## The relay
 
-In both paths Claude Code is started with `ANTHROPIC_BASE_URL` pointing to a local HTTP relay (`src/turn-relay.ts`). For each Pi call:
+In both paths Claude Code is started with `ANTHROPIC_BASE_URL` pointing to a local HTTP relay (`src/relay/turn-relay.ts`). For each Pi call:
 
-1. Pi's conversation is converted to native Anthropic frames (`src/transcript.ts`).
+1. Pi's conversation is converted to native Anthropic frames (`src/request/transcript.ts`).
 2. A trigger message is submitted to Claude Code (`continue` in the TUI).
-3. When Claude Code sends its `/v1/messages` request, the relay replaces the transcript with Pi's frames, writes per-turn values into the body (`src/turn-body.ts`), forwards it upstream and streams the response back to both Claude Code and Pi.
+3. When Claude Code sends its `/v1/messages` request, the relay replaces the transcript with Pi's frames, writes per-turn values into the body (`src/tui/turn-body.ts`), forwards it upstream and streams the response back to both Claude Code and Pi.
 4. Only the first upstream request of a call is forwarded. Any further request in the same call (for example Claude Code's own retry) is rejected with HTTP 400 and counted as a denied retry.
 
 Authentication headers pass through the relay; the extension never reads Claude Code's credential files.
@@ -38,14 +38,17 @@ flowchart LR
 
 ## Source map
 
-| Area | Files |
-|---|---|
-| Extension entry and provider | `index.ts`, `provider.ts`, `model-catalog.ts` |
-| Request conversion | `stream.ts`, `transcript.ts`, `tool-config.ts`, `tool-history.ts`, `tool-call-ids.ts`, `thinking-replay.ts`, `cache-breakpoints.ts` |
-| Relay and response checks | `turn-relay.ts`, `relay-failure.ts`, `response-checks.ts`, `billing.ts`, `rate-limit-headers.ts` |
-| Interactive TUI path | `tui-process.ts`, `turn-body.ts`, `tui-transcript.ts`, `tui-screen.ts`, `tui-lifecycle.ts`, `pty-session.ts`, `pty-helper.py`, `inert-mcp.mjs` |
-| Print-mode path | `claude-print-process.ts`, `claude-print-cache.ts`, `initial-request.ts` |
-| Claude Code executable and process | `claude-executable.ts`, `claude-models.ts`, `claude-spawn.ts`; `claude-cli.ts` re-exports them |
+Each folder under `src/` is one layer. Imports only point in the directions below; `tests/source-layout.test.ts` enforces this.
+
+| Folder | Role | Files | May import |
+|---|---|---|---|
+| `src/` | Extension entry; picks the path for each call | `index.ts`, `provider.ts`, `stream.ts` | everything |
+| `shared/` | Types and settings used everywhere | `native-types.ts`, `billing.ts`, `model-catalog.ts`, `env.ts` | `shared/` |
+| `request/` | Converting Pi's conversation into native frames | `transcript.ts`, `tool-config.ts`, `tool-history.ts`, `tool-call-ids.ts`, `thinking-replay.ts`, `cache-breakpoints.ts`, `initial-request.ts`, `run-types.ts` | `shared/`, `request/` |
+| `relay/` | Relay and response checks | `turn-relay.ts`, `relay-failure.ts`, `response-checks.ts`, `rate-limit-headers.ts` | `shared/`, `relay/` |
+| `claude/` | Finding and starting the Claude Code executable | `claude-executable.ts`, `claude-models.ts`, `claude-spawn.ts`, `inert-mcp.mjs` | `shared/`, `claude/` |
+| `tui/` | Interactive TUI path | `tui-process.ts`, `turn-body.ts`, `tui-transcript.ts`, `tui-screen.ts`, `tui-lifecycle.ts`, `pty-session.ts`, `pty-helper.py` | `shared/`, `request/`, `relay/`, `claude/`, `tui/` |
+| `print/` | Print-mode path | `claude-print-process.ts`, `claude-print-cache.ts` | `shared/`, `request/`, `relay/`, `claude/`, `print/` |
 
 ## Related documents
 

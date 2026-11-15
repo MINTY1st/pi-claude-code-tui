@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { initialContext, replaceTranscript } from "../src/tui-transcript.ts";
-import type { NativeFrame } from "../src/native-types.ts";
-import type { NativeSystemInjection } from "../src/transcript.ts";
+import { initialContext, replaceTranscript } from "../src/tui/tui-transcript.ts";
+import type { NativeFrame } from "../src/shared/native-types.ts";
+import type { NativeSystemInjection } from "../src/request/transcript.ts";
 
 const reminder = { type: "text", text: "<system-reminder>\naccount context\n</system-reminder>" };
 const environment = { role: "system", content: [{ type: "text", text: "# Environment", cache_control: { type: "ephemeral", ttl: "1h" } }] };

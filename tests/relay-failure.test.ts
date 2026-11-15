@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { isRetryableAssistantError, type AssistantMessage } from "@earendil-works/pi-ai";
-import { describeUsageCreditsRejection, usageCreditsChargeError } from "../src/billing.ts";
+import { describeUsageCreditsRejection, usageCreditsChargeError } from "../src/shared/billing.ts";
 import {
   CaptureError,
   describeError,
@@ -10,7 +10,7 @@ import {
   relayFailure,
   type RelayFailure,
   type RelayOutcome,
-} from "../src/relay-failure.ts";
+} from "../src/relay/relay-failure.ts";
 import { normalizeError } from "../src/stream.ts";
 
 // Pi 本体（AgentSession._isRetryableError）と同じ判定を、stream.ts が作る errorMessage に対して行う
