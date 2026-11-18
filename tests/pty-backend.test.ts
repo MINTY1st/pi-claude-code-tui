@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { cmdCommandLine } from "../src/claude/claude-spawn.ts";
+import { resolveClaudeExecutable } from "../src/claude/claude-executable.ts";
+import { environmentValue } from "../src/shared/env.ts";
 import { startNodePty, windowsPtyCommand } from "../src/tui/node-pty-process.ts";
 import { defaultPtyBackend } from "../src/tui/pty-process.ts";
 import { TuiSession, type TuiSessionOptions } from "../src/tui/pty-session.ts";
@@ -46,6 +48,27 @@ test("node-pty を読み込めなければ、起動の失敗として終了を�
   assert.match(failure?.message ?? "", /node-pty.*Cannot find module/);
   assert.doesNotThrow(() => pty.write("x"));
   assert.doesNotThrow(() => pty.close());
+});
+
+test("Windows では環境変数の名前の大文字小文字を区別せずに引く（Windows の PATH は Path という名前で写される）", () => {
+  assert.equal(environmentValue({ Path: "C:\\bin" }, "PATH", "win32"), "C:\\bin");
+  assert.equal(environmentValue({ PATH: "C:\\bin" }, "PATH", "win32"), "C:\\bin");
+  assert.equal(environmentValue({ Path: "/bin" }, "PATH", "linux"), undefined);
+  assert.equal(environmentValue({ PATH: "/usr/bin" }, "PATH", "linux"), "/usr/bin");
+  assert.equal(environmentValue({}, "PATH", "win32"), undefined);
+});
+
+test("process.env を写したオブジェクトからでも、PATH 上の claude を見つける", async () => {
+  const root = await mkdtemp(join(tmpdir(), "claude-path-"));
+  try {
+    const name = process.platform === "win32" ? "claude.cmd" : "claude";
+    await writeFile(join(root, name), process.platform === "win32" ? "@echo off\r\n" : "#!/bin/sh\n", { mode: 0o755 });
+    // Windows の process.env は写すと Path という名前になる。その形をどの OS でも再現する
+    const pathKey = process.platform === "win32" ? "Path" : "PATH";
+    assert.equal(await resolveClaudeExecutable({ [pathKey]: root, PATHEXT: ".EXE;.CMD" }), join(root, name));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 async function withNodePtySession(

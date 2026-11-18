@@ -1,6 +1,7 @@
 import { constants as fsConstants } from "node:fs";
 import { access } from "node:fs/promises";
 import { delimiter, extname, isAbsolute, join, resolve } from "node:path";
+import { environmentValue } from "../shared/env.ts";
 import { childExit, killProcessTree, spawnCommand, withConfigDirectory } from "./claude-spawn.ts";
 
 export const INSTALL_HINT =
@@ -43,9 +44,9 @@ export async function resolveClaudeExecutable(
 
   const extensions =
     process.platform === "win32"
-      ? (env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";").flatMap((suffix) => [suffix, suffix.toLowerCase()])
+      ? (environmentValue(env, "PATHEXT") || ".COM;.EXE;.BAT;.CMD").split(";").flatMap((suffix) => [suffix, suffix.toLowerCase()])
       : [""];
-  for (const directory of (env.PATH || "").split(delimiter)) {
+  for (const directory of (environmentValue(env, "PATH") || "").split(delimiter)) {
     if (!directory) continue;
     for (const suffix of extensions) {
       const candidate = join(directory, process.platform === "win32" && extname(command) ? command : command + suffix);
@@ -128,7 +129,7 @@ export async function readyClaudeCommand(
   signal?: AbortSignal,
 ): Promise<string> {
   const env = withConfigDirectory(envInput);
-  const key = JSON.stringify([configuredCommand(env), env.PATH, env.HOME, env.CLAUDE_CONFIG_DIR]);
+  const key = JSON.stringify([configuredCommand(env), environmentValue(env, "PATH"), env.HOME, env.CLAUDE_CONFIG_DIR]);
   const cached = readyStatusCache.get(key);
   if (cached && cached.expires > Date.now()) return cached.command;
 

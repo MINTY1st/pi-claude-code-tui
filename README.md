@@ -16,7 +16,7 @@ Pi manages conversation history, approvals, and tool execution. Claude Code hand
 - Node.js 24.21 or later, Pi, and Claude Code.
 - On Linux and macOS: Python 3.9 or later as `python3`, with `os.forkpty`, `os.waitid`, and `os.WNOWAIT`.
 - On Windows 10 1809 or later: no Python. The TUI runs in a ConPTY pseudo-console through [`@lydell/node-pty`](https://www.npmjs.com/package/@lydell/node-pty), installed as an optional dependency with prebuilt binaries.
-- Tested on WSL2 with Claude Code 2.1.316 and Haiku 5.5. macOS is untested. Native Windows support is experimental: CI checks the ConPTY path against a fake Claude Code only, not the real Claude Code.
+- Tested on WSL2 with Claude Code 2.1.316 and Haiku 5.5. macOS is untested. Native Windows support is experimental: tested once on Windows 11 with Node.js 26.13.1, Claude Code 2.1.318 (winget) and Haiku 5.5, and CI checks the ConPTY path against a fake Claude Code.
 
 ## Install
 
