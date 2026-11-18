@@ -65,7 +65,10 @@ test("process.env を写したオブジェクトからでも、PATH 上の claud
     await writeFile(join(root, name), process.platform === "win32" ? "@echo off\r\n" : "#!/bin/sh\n", { mode: 0o755 });
     // Windows の process.env は写すと Path という名前になる。その形をどの OS でも再現する
     const pathKey = process.platform === "win32" ? "Path" : "PATH";
-    assert.equal(await resolveClaudeExecutable({ [pathKey]: root, PATHEXT: ".EXE;.CMD" }), join(root, name));
+    // Windows のファイル名は大文字小文字を区別しないため、PATHEXT の綴り（.CMD）のまま見つかる
+    const found = await resolveClaudeExecutable({ [pathKey]: root, PATHEXT: ".EXE;.CMD" });
+    const normalize = (path?: string) => (process.platform === "win32" ? path?.toLowerCase() : path);
+    assert.equal(normalize(found), normalize(join(root, name)));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
