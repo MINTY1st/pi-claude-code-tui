@@ -8,6 +8,12 @@ export function withConfigDirectory(env: Record<string, string | undefined>): Re
   return output;
 }
 
+/** cmd.exe /s /c に渡すコマンド行。各引数を二重引用符で囲み、中の二重引用符は重ねる */
+export function cmdCommandLine(command: string, commandArguments: string[]): string {
+  const quote = (value: string) => `"${value.replace(/"/gu, '""')}"`;
+  return [quote(command), ...commandArguments.map(quote)].join(" ");
+}
+
 export function spawnCommand(
   command: string,
   args: string[],
@@ -15,8 +21,7 @@ export function spawnCommand(
 ): ChildProcess {
   if (process.platform === "win32" && /\.(?:cmd|bat)$/iu.test(command)) {
     const comspec = options?.env?.COMSPEC || process.env.COMSPEC || "cmd.exe";
-    const quote = (value: string) => `"${value.replace(/"/gu, '""')}"`;
-    return spawn(comspec, ["/d", "/s", "/c", [quote(command), ...args.map(quote)].join(" ")], options);
+    return spawn(comspec, ["/d", "/s", "/c", cmdCommandLine(command, args)], options);
   }
   return spawn(command, args, options);
 }
@@ -33,8 +38,13 @@ export function childExit(child: ChildProcess): Promise<number> {
 
 export function killProcessTree(child: ChildProcess): void {
   if (child.exitCode !== null || child.pid === undefined) return;
+  killPidTree(child.pid);
+}
+
+/** pid のプロセスとその子を強制終了する。Windows は taskkill /T、それ以外はプロセスグループ（無ければ本人） */
+export function killPidTree(pid: number): void {
   if (process.platform === "win32") {
-    const killer = spawn("taskkill", ["/F", "/T", "/PID", String(child.pid)], {
+    const killer = spawn("taskkill", ["/F", "/T", "/PID", String(pid)], {
       stdio: "ignore",
       windowsHide: true,
     });
@@ -42,10 +52,10 @@ export function killProcessTree(child: ChildProcess): void {
     return;
   }
   try {
-    process.kill(-child.pid, "SIGKILL");
+    process.kill(-pid, "SIGKILL");
   } catch {
     try {
-      child.kill("SIGKILL");
+      process.kill(pid, "SIGKILL");
     } catch {
       // It exited between the checks.
     }

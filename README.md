@@ -14,8 +14,9 @@ Pi manages conversation history, approvals, and tool execution. Claude Code hand
 ## Requirements
 
 - Node.js 24.21 or later, Pi, and Claude Code.
-- Python 3.9 or later as `python3`, with `os.forkpty`, `os.waitid`, and `os.WNOWAIT`.
-- Linux or macOS. Tested on WSL2 with Claude Code 2.1.316 and Haiku 5.5; macOS is untested, and native Windows is unsupported.
+- On Linux and macOS: Python 3.9 or later as `python3`, with `os.forkpty`, `os.waitid`, and `os.WNOWAIT`.
+- On Windows 10 1809 or later: no Python. The TUI runs in a ConPTY pseudo-console through [`@lydell/node-pty`](https://www.npmjs.com/package/@lydell/node-pty), installed as an optional dependency with prebuilt binaries.
+- Tested on WSL2 with Claude Code 2.1.316 and Haiku 5.5. macOS is untested. Native Windows support is experimental: CI checks the ConPTY path against a fake Claude Code only, not the real Claude Code.
 
 ## Install
 
@@ -91,7 +92,7 @@ npm run check
 npm pack --dry-run
 ```
 
-Tests use a fake Claude Code and local upstream, not the real model service. PTY tests start real child processes and require `python3`.
+Tests use a fake Claude Code and local upstream, not the real model service. PTY tests start real child processes and require `python3`. `tests/pty-backend.test.ts` covers the node-pty path and is the only test file run on Windows in CI.
 
 `scripts/verify-turn-body.mts` and `scripts/verify-thinking-summaries.mts` send a few real requests through Claude Code to check behavior that the fake cannot reproduce (request bodies, beta headers, cache reads, thinking text). They use your Claude plan; run them only when changing those areas.
 

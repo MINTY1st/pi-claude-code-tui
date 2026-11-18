@@ -42,10 +42,19 @@ test("CIは公開用の手順を含まない", () => {
   assert.doesNotMatch(workflow, /release-guard|npm pack|npm publish|upload-artifact|gh release/);
 });
 
-test("CIはジョブtestを1つだけ持ち、10分で打ち切る", () => {
+test("CIはジョブtestとwindowsを持ち、どちらも10分で打ち切る", () => {
   assert.match(workflow, /^jobs:\n  test:\n/m);
-  assert.deepEqual(workflow.split("\njobs:\n")[1]!.match(/^  [a-z-]+:$/gm), ["  test:"]);
-  assert.match(workflow, /timeout-minutes: 10/);
+  assert.deepEqual(workflow.split("\njobs:\n")[1]!.match(/^  [a-z-]+:$/gm), ["  test:", "  windows:"]);
+  assert.equal(workflow.match(/timeout-minutes: 10/g)?.length, 2);
+});
+
+test("windowsジョブはwindows-latestで、ConPTYを通る検査だけをscriptsを動かさずに実行する", () => {
+  const windows = workflow.split("\n  windows:\n")[1]!;
+  assert.match(windows, /runs-on: windows-latest/);
+  assert.match(windows, /node-version: '24\.22\.2'/);
+  assert.match(windows, /npm ci --ignore-scripts/);
+  assert.match(windows, /node --experimental-transform-types --test tests\/pty-backend\.test\.ts/);
+  assert.doesNotMatch(windows, /npm test/);
 });
 
 test("CIの外部ActionsはコミットSHAに固定し、publish.ymlと同じSHAを使う", () => {

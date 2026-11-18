@@ -1,6 +1,5 @@
-import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { defaultPtyBackend, type PtyBackend, type PtyProcess, startPty } from "./pty-process.ts";
 import { bracketedPaste, createTerminalResponder, plainScreen, promptAfterBusy, type ScreenState, screenState, turnFinished } from "./tui-screen.ts";
 
 export interface TuiSessionOptions {
@@ -15,6 +14,8 @@ export interface TuiSessionOptions {
   readyTimeoutMs?: number;
   /** 終了行を取りこぼしたとき、応答の受信完了と入力欄がこの時間続いたらターンの終わりとみなす */
   promptFallbackMs?: number;
+  /** 省略時は OS で決める（defaultPtyBackend） */
+  backend?: PtyBackend;
 }
 
 const COLUMNS = 200;
@@ -32,7 +33,6 @@ const SCREEN_KEEP = 128 * 1024;
 // 応答を受け取り終えても、TUI が入力欄を描き直し終えるまでは画面が揺れるため、少し長めに待つ
 const DEFAULT_PROMPT_FALLBACK_MS = 3_000;
 const EXIT_GRACE_MS = 3_000;
-const HELPER_PATH = fileURLToPath(new URL("./pty-helper.py", import.meta.url));
 
 const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -56,35 +56,32 @@ export class TuiSession {
   private readonly respond = createTerminalResponder();
   private exited = false;
   private failure?: Error;
-  private stderr = "";
   private readonly exit: Promise<void>;
 
   private constructor(
-    private readonly child: ChildProcess,
+    private readonly pty: PtyProcess,
     private readonly options: TuiSessionOptions,
   ) {
-    child.stdout!.setEncoding("utf8");
-    child.stdout!.on("data", (chunk: string) => this.receive(chunk));
-    child.stdin!.on("error", () => undefined);
-    child.stderr!.setEncoding("utf8");
-    child.stderr!.on("data", (chunk: string) => (this.stderr = (this.stderr + chunk).slice(-2_000)));
+    pty.onData((chunk) => this.receive(chunk));
     this.exit = new Promise((resolve) => {
-      child.once("exit", () => resolve());
-      child.once("error", (error) => {
-        this.failure = new Error(`Unable to start Python PTY helper: ${error.message}`);
+      pty.onExit((failure) => {
+        this.failure = failure;
+        this.exited = true;
         resolve();
       });
     });
-    void this.exit.then(() => (this.exited = true));
   }
 
   static start(options: TuiSessionOptions): TuiSession {
-    const child = spawn("python3", [HELPER_PATH, String(COLUMNS), String(ROWS), options.command, ...options.args], {
+    const pty = startPty(options.backend ?? defaultPtyBackend(process.platform), {
+      command: options.command,
+      commandArguments: options.args,
       cwd: options.cwd,
-      env: { ...options.env, TERM: "xterm-256color" },
-      stdio: ["pipe", "pipe", "pipe"],
+      environment: { ...options.env, TERM: "xterm-256color" },
+      columns: COLUMNS,
+      rows: ROWS,
     });
-    return new TuiSession(child, options);
+    return new TuiSession(pty, options);
   }
 
   isAlive(): boolean {
@@ -147,9 +144,8 @@ export class TuiSession {
 
   async close(): Promise<void> {
     if (this.exited) return;
-    // pty-helper は stdin が閉じると端末を切り、閉じたウィンドウと同じく Claude Code に終了を知らせる
-    this.child.stdin!.end();
-    const timer = setTimeout(() => this.child.kill("SIGKILL"), EXIT_GRACE_MS);
+    this.pty.close();
+    const timer = setTimeout(() => this.pty.kill(), EXIT_GRACE_MS);
     await this.exit;
     clearTimeout(timer);
   }
@@ -160,7 +156,7 @@ export class TuiSession {
   }
 
   private write(text: string): void {
-    if (!this.exited) this.child.stdin!.write(text);
+    if (!this.exited) this.pty.write(text);
   }
 
   private answerTrust(state: ScreenState, trust: { yesSince: number; lastDown: number }): void {
@@ -200,7 +196,7 @@ export class TuiSession {
       const deadline = Math.max(startedAt, lastActivityAt?.() ?? 0) + timeoutMs;
       signal?.throwIfAborted();
       if (this.failure) throw this.failure;
-      if (this.exited) throw new Error(`Claude Code ended: ${this.lastScreen() || this.stderr.trim()}`);
+      if (this.exited) throw new Error(`Claude Code ended: ${this.lastScreen() || this.pty.diagnostics().trim()}`);
       if (done(screenState(plainScreen(this.raw)))) return;
       if (Date.now() >= deadline) throw new Error(`${describe()} within ${timeoutMs}ms: ${this.lastScreen()}`);
       await sleep(POLL_MS);
