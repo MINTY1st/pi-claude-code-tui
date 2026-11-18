@@ -36,6 +36,17 @@ flowchart LR
     R -->|events| S
 ```
 
+## Pseudo-terminal backends
+
+`TuiSession` (`src/tui/pty-session.ts`) reads the screen and sends keys through a `PtyProcess` (`src/tui/pty-process.ts`). The backend is chosen by platform:
+
+| Platform | Backend | Closing | Forced exit |
+|---|---|---|---|
+| Linux, macOS | `python3 pty-helper.py` (`os.forkpty`) | Closing the helper's stdin hangs up the terminal; the helper reaps the process group | `SIGKILL` to the helper |
+| Windows | `@lydell/node-pty` (ConPTY), `src/tui/node-pty-process.ts` | Closing the pseudo-console | `taskkill /F /T` |
+
+On Windows, `.cmd` and `.bat` launchers run through `cmd.exe /d /s /c` with a pre-quoted command line. Screen detection is the same on both backends; ConPTY's redrawn output has been checked only against the fake Claude Code in CI.
+
 ## Source map
 
 Each folder under `src/` is one layer. Imports only point in the directions below; `tests/source-layout.test.ts` enforces this.
@@ -47,7 +58,7 @@ Each folder under `src/` is one layer. Imports only point in the directions belo
 | `request/` | Converting Pi's conversation into native frames | `transcript.ts`, `tool-config.ts`, `tool-history.ts`, `tool-call-ids.ts`, `thinking-replay.ts`, `cache-breakpoints.ts`, `initial-request.ts`, `run-types.ts` | `shared/`, `request/` |
 | `relay/` | Relay and response checks | `turn-relay.ts`, `relay-failure.ts`, `response-checks.ts`, `rate-limit-headers.ts` | `shared/`, `relay/` |
 | `claude/` | Finding and starting the Claude Code executable | `claude-executable.ts`, `claude-models.ts`, `claude-spawn.ts`, `inert-mcp.mjs` | `shared/`, `claude/` |
-| `tui/` | Interactive TUI path | `tui-process.ts`, `turn-body.ts`, `tui-transcript.ts`, `tui-screen.ts`, `tui-lifecycle.ts`, `pty-session.ts`, `pty-helper.py` | `shared/`, `request/`, `relay/`, `claude/`, `tui/` |
+| `tui/` | Interactive TUI path | `tui-process.ts`, `turn-body.ts`, `tui-transcript.ts`, `tui-screen.ts`, `tui-lifecycle.ts`, `pty-session.ts`, `pty-process.ts`, `pty-helper.py`, `node-pty-process.ts` | `shared/`, `request/`, `relay/`, `claude/`, `tui/` |
 | `print/` | Print-mode path | `claude-print-process.ts`, `claude-print-cache.ts` | `shared/`, `request/`, `relay/`, `claude/`, `print/` |
 
 ## Related documents

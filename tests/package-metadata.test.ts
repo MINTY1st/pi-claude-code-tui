@@ -29,6 +29,14 @@ test("型検査と単体テストには、実行環境の Pi と同じ 1.5.0 の
   }
 });
 
+test("Windows 用の node-pty は optionalDependencies に版を固定して置き、インストール時のスクリプトに頼らない", () => {
+  assert.deepEqual(manifest.optionalDependencies, { "@lydell/node-pty": "1.2.0-beta.18" });
+  assert.equal(manifest.dependencies, undefined);
+  assert.equal(lock.packages["node_modules/@lydell/node-pty"].version, "1.2.0-beta.18");
+  assert.equal(lock.packages["node_modules/@lydell/node-pty-win32-x64"].optional, true);
+  assert.equal(lock.packages["node_modules/@lydell/node-pty"].hasInstallScript, undefined);
+});
+
 test("配布物に文書と派生元・magpie の MIT 表示を含める", () => {
   assert.deepEqual(manifest.files, ["src", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"]);
   assert.equal(manifest.license, "MIT");
